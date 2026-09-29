@@ -2,22 +2,39 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useSpring, useTransform } from "framer-motion";
-import {
-  ChevronLeft,
-  FileAudio,
-  History,
-  Loader2,
-  Mic,
-  RefreshCw,
-} from "lucide-react";
+import { ChevronLeft, History, Loader2, Mic } from "lucide-react";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
-import { analyzeAudio } from "@/lib/analyzeAudio";
+import { analyzeAudio, type SongResult } from "@/lib/analyzeAudio";
 
 type SearchMode = "quick" | "power";
-type AppState = "idle" | "listening" | "analyzing" | "failed";
+type AppState = "idle" | "listening" | "analyzing" | "result";
 
 const GOOGLE_COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"] as const;
 const STAGE_1_TIMEOUT_MS = 8000;
+
+const GENRE_OPTIONS = [
+  "Any genre",
+  "Pop",
+  "Hip-hop",
+  "R&B",
+  "Rock",
+  "Indie",
+  "Electronic",
+  "Country",
+  "Jazz",
+  "Classical",
+] as const;
+
+const ERA_OPTIONS = [
+  "Any era",
+  "2020s",
+  "2010s",
+  "2000s",
+  "1990s",
+  "1980s",
+  "1970s",
+  "Older",
+] as const;
 
 type ListeningPrompt =
   | { key: "hero"; kind: "stacked" }
@@ -57,6 +74,30 @@ function GoogleGLogo({ className = "h-7 w-7" }: { className?: string }) {
       <path
         fill="#EA4335"
         d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+      />
+    </svg>
+  );
+}
+
+function YouTubeIcon({ className = "h-6 w-6" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="#FF0000"
+        d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8z"
+      />
+      <path fill="#fff" d="M9.75 15.02V8.98L15.5 12l-5.75 3.02z" />
+    </svg>
+  );
+}
+
+function SpotifyIcon({ className = "h-6 w-6" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden>
+      <circle cx="12" cy="12" r="12" fill="#1DB954" />
+      <path
+        fill="#fff"
+        d="M16.9 10.5c-2.5-1.5-6.6-1.6-9-.9a.75.75 0 1 1-.4-1.45c2.8-.78 7.4-.63 10.4 1.15a.75.75 0 1 1-.8 1.27zm-.2 2.35a.62.62 0 0 1-.86.21c-2.1-1.29-5.3-1.66-7.78-.91a.63.63 0 0 1-.37-1.2c2.8-.85 6.3-.44 8.7 1.03.3.18.4.56.2.87zm-1 2.25a.5.5 0 0 1-.69.17c-1.83-1.12-4.14-1.37-6.86-.75a.5.5 0 1 1-.23-.97c2.98-.68 5.55-.39 7.6.86.24.15.32.46.18.69z"
       />
     </svg>
   );
@@ -151,10 +192,166 @@ function ListeningHeadline({ elapsedMs }: { elapsedMs: number }) {
   );
 }
 
+function PowerSearchFilters({
+  genre,
+  lyrics,
+  era,
+  onGenreChange,
+  onLyricsChange,
+  onEraChange,
+}: {
+  genre: string;
+  lyrics: string;
+  era: string;
+  onGenreChange: (value: string) => void;
+  onLyricsChange: (value: string) => void;
+  onEraChange: (value: string) => void;
+}) {
+  const fieldClass =
+    "w-full rounded-2xl bg-[#f1f3f4] px-4 py-3.5 text-sm text-black outline-none ring-0 placeholder:text-black/40 focus:bg-[#e8eaed]";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: "easeOut" }}
+      className="flex w-full max-w-sm flex-col gap-3"
+    >
+      <label className="block">
+        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
+          Genre
+        </span>
+        <select
+          value={genre}
+          onChange={(e) => onGenreChange(e.target.value)}
+          className={`${fieldClass} appearance-none`}
+        >
+          {GENRE_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="block">
+        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
+          Lyrics
+        </span>
+        <input
+          type="text"
+          value={lyrics}
+          onChange={(e) => onLyricsChange(e.target.value)}
+          placeholder="Any words you remember"
+          className={fieldClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
+          Era
+        </span>
+        <select
+          value={era}
+          onChange={(e) => onEraChange(e.target.value)}
+          className={`${fieldClass} appearance-none`}
+        >
+          {ERA_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+    </motion.div>
+  );
+}
+
+function ResultCard({
+  song,
+  onWrongSong,
+}: {
+  song: SongResult;
+  onWrongSong: () => void;
+}) {
+  const query = encodeURIComponent(`${song.title} ${song.artist}`);
+  const youtubeUrl = `https://www.youtube.com/results?search_query=${query}`;
+  const spotifyUrl = `https://open.spotify.com/search/${query}`;
+
+  return (
+    <main className="relative z-10 flex h-full flex-col items-center px-6 pb-8 pt-16">
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="flex w-full max-w-sm flex-1 flex-col items-center"
+      >
+        <div className="w-full overflow-hidden rounded-3xl bg-[#f1f3f4] shadow-sm">
+          {song.albumArt ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={song.albumArt}
+              alt={`${song.title} album art`}
+              className="aspect-square w-full object-cover"
+            />
+          ) : (
+            <div className="flex aspect-square w-full items-center justify-center bg-gradient-to-br from-[#e8eaed] to-[#d2d5d9] text-sm text-black/40">
+              No cover art
+            </div>
+          )}
+        </div>
+
+        <h2 className="mt-6 w-full text-center text-3xl font-bold leading-tight tracking-tight text-black">
+          {song.title}
+        </h2>
+        <p className="mt-2 text-center text-lg text-black/65">{song.artist}</p>
+        {(song.album || song.year) && (
+          <p className="mt-1 text-center text-sm text-black/40">
+            {[song.album, song.year].filter(Boolean).join(" · ")}
+          </p>
+        )}
+
+        <div className="mt-8 flex items-center gap-5">
+          <a
+            href={youtubeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open on YouTube"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f1f3f4] transition-colors hover:bg-[#e8eaed]"
+          >
+            <YouTubeIcon className="h-7 w-7" />
+          </a>
+          <a
+            href={spotifyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open on Spotify"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f1f3f4] transition-colors hover:bg-[#e8eaed]"
+          >
+            <SpotifyIcon className="h-7 w-7" />
+          </a>
+        </div>
+      </motion.div>
+
+      <button
+        type="button"
+        onClick={onWrongSong}
+        className="mt-4 text-sm font-medium text-black/45 underline-offset-4 transition-colors hover:text-black/70 hover:underline"
+      >
+        Not the right song?
+      </button>
+    </main>
+  );
+}
+
 export default function Home() {
   const [searchMode, setSearchMode] = useState<SearchMode>("quick");
   const [appState, setAppState] = useState<AppState>("idle");
   const [listeningElapsedMs, setListeningElapsedMs] = useState(0);
+  const [song, setSong] = useState<SongResult | null>(null);
+  const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0]);
+  const [lyrics, setLyrics] = useState("");
+  const [era, setEra] = useState<string>(ERA_OPTIONS[0]);
 
   const {
     startRecording,
@@ -165,45 +362,71 @@ export default function Home() {
 
   const analyzingRef = useRef(false);
   const listeningStartedAtRef = useRef<number | null>(null);
+  const filtersRef = useRef({ genre, lyrics, era });
+
+  useEffect(() => {
+    filtersRef.current = { genre, lyrics, era };
+  }, [genre, lyrics, era]);
+
+  const enterPowerIdle = useCallback(() => {
+    analyzingRef.current = false;
+    listeningStartedAtRef.current = null;
+    setSong(null);
+    setListeningElapsedMs(0);
+    setSearchMode("power");
+    setAppState("idle");
+  }, []);
 
   const resetSession = useCallback(async () => {
     analyzingRef.current = false;
     listeningStartedAtRef.current = null;
     await stopRecording();
     setListeningElapsedMs(0);
+    setSong(null);
+    setGenre(GENRE_OPTIONS[0]);
+    setLyrics("");
+    setEra(ERA_OPTIONS[0]);
     setAppState("idle");
     setSearchMode("quick");
   }, [stopRecording]);
 
   const startListening = () => {
-    setSearchMode("quick");
+    setSong(null);
     setListeningElapsedMs(0);
     listeningStartedAtRef.current = Date.now();
+    // Stay in power mode when retrying from Power Search idle.
+    if (searchMode !== "power") {
+      setSearchMode("quick");
+    }
     setAppState("listening");
-  };
-
-  const redirectToGoogle = (title: string, artist: string) => {
-    const query = encodeURIComponent(`${title} ${artist}`);
-    window.location.href = `https://www.google.com/search?q=${query}`;
   };
 
   const runAnalysis = useCallback(async () => {
     if (analyzingRef.current) return;
     analyzingRef.current = true;
 
+    const filters = filtersRef.current;
     const blob = await stopRecording();
     setAppState("analyzing");
     listeningStartedAtRef.current = null;
 
-    const result = await analyzeAudio(blob);
+    const result = await analyzeAudio(blob, {
+      lyrics: filters.lyrics,
+      genre: filters.genre,
+      era: filters.era,
+    });
 
     if (result.success && result.ok && result.songs.length > 0) {
-      const song = result.songs[0];
-      redirectToGoogle(song.title, song.artist);
+      setSong(result.songs[0]);
+      setAppState("result");
+      analyzingRef.current = false;
       return;
     }
 
-    setAppState("failed");
+    // Quick-mode miss → Power Search idle
+    setSong(null);
+    setSearchMode("power");
+    setAppState("idle");
     analyzingRef.current = false;
   }, [stopRecording]);
 
@@ -256,6 +479,8 @@ export default function Home() {
   }, [appState, searchMode, runAnalysis]);
 
   const isListening = appState === "listening";
+  const isPowerIdle = appState === "idle" && searchMode === "power";
+  const isQuickIdle = appState === "idle" && searchMode === "quick";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#e8eaed]">
@@ -289,7 +514,7 @@ export default function Home() {
           </button>
         </header>
 
-        {appState === "idle" && (
+        {isQuickIdle && (
           <>
             <main className="relative z-10 flex h-full flex-col items-center px-8 pt-[22vh]">
               <h1 className="text-center text-6xl font-bold leading-none tracking-tight text-black sm:text-7xl">
@@ -317,11 +542,62 @@ export default function Home() {
           </>
         )}
 
+        {isPowerIdle && (
+          <>
+            <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[12vh]">
+              <h1 className="mb-8 max-w-sm text-center text-2xl font-medium leading-snug tracking-tight text-black sm:text-3xl">
+                Humming was tricky? Let&apos;s narrow it down.
+              </h1>
+
+              <PowerSearchFilters
+                genre={genre}
+                lyrics={lyrics}
+                era={era}
+                onGenreChange={setGenre}
+                onLyricsChange={setLyrics}
+                onEraChange={setEra}
+              />
+
+              {micError && (
+                <p className="mt-4 max-w-xs text-center text-sm text-red-600">
+                  {micError}
+                </p>
+              )}
+            </main>
+
+            <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-12">
+              <button
+                type="button"
+                aria-label="Start listening"
+                onClick={startListening}
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-[#1a73e8] text-white shadow-lg transition-transform active:scale-95"
+              >
+                <Mic className="h-7 w-7" strokeWidth={2} />
+              </button>
+            </div>
+          </>
+        )}
+
         {isListening && (
           <>
             <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[18vh]">
               <ListeningHeadline elapsedMs={listeningElapsedMs} />
             </main>
+
+            {searchMode === "power" && (
+              <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runAnalysis();
+                  }}
+                  className="rounded-full bg-[#1a73e8] px-8 py-3.5 text-sm font-medium text-white shadow-md transition-transform active:scale-95"
+                >
+                  Stop Search
+                </button>
+              </div>
+            )}
+
             <ReactiveBottomWave audioVolume={audioVolume} />
           </>
         )}
@@ -332,27 +608,8 @@ export default function Home() {
           </main>
         )}
 
-        {appState === "failed" && (
-          <main className="relative z-10 flex h-full flex-col items-center justify-center px-8 text-center">
-            <div className="mb-8 flex h-28 w-28 items-center justify-center rounded-3xl bg-[#f1f3f4]">
-              <FileAudio
-                className="h-14 w-14 text-black/35"
-                strokeWidth={1.5}
-                aria-hidden
-              />
-            </div>
-            <p className="text-lg font-medium text-black/55">No matched song</p>
-            <button
-              type="button"
-              onClick={() => {
-                void resetSession();
-              }}
-              className="mt-8 inline-flex items-center gap-2 rounded-full bg-[#f1f3f4] px-6 py-3 text-sm font-medium text-black transition-colors hover:bg-[#e8eaed]"
-            >
-              <RefreshCw className="h-4 w-4" strokeWidth={2} />
-              Try again
-            </button>
-          </main>
+        {appState === "result" && song && (
+          <ResultCard song={song} onWrongSong={enterPowerIdle} />
         )}
       </div>
     </div>
