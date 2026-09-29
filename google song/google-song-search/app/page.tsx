@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, History, Mic } from "lucide-react";
+import { ChevronLeft, History, Loader2, Mic } from "lucide-react";
+import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import {
+  analyzeAudio,
+  type SongResult,
+} from "@/lib/analyzeAudio";
 
 type SearchMode = "quick" | "power";
 type AppState = "idle" | "listening" | "analyzing" | "result" | "failed";
@@ -166,40 +171,118 @@ function PowerSearchFilters({
   );
 }
 
+function AnalyzingLoader() {
+  return (
+    <div className="flex flex-col items-center gap-4">
+      <Loader2
+        className="h-10 w-10 animate-spin text-[#1a73e8]"
+        strokeWidth={2}
+        aria-hidden
+      />
+      <p className="text-lg font-medium text-black/80">Analyzing...</p>
+    </div>
+  );
+}
+
 export default function Home() {
   const [searchMode, setSearchMode] = useState<SearchMode>("quick");
   const [appState, setAppState] = useState<AppState>("idle");
   const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0]);
   const [lyrics, setLyrics] = useState("");
   const [era, setEra] = useState<string>(ERA_OPTIONS[0]);
+  const [song, setSong] = useState<SongResult | null>(null);
+  const [failReason, setFailReason] = useState<string | null>(null);
 
-  const resetSession = () => {
+  const { startRecording, stopRecording, error: micError } = useAudioRecorder();
+
+  const searchModeRef = useRef(searchMode);
+  const analyzingRef = useRef(false);
+
+  useEffect(() => {
+    searchModeRef.current = searchMode;
+  }, [searchMode]);
+
+  const resetSession = useCallback(async () => {
+    analyzingRef.current = false;
+    await stopRecording();
     setAppState("idle");
     setSearchMode("quick");
     setGenre(GENRE_OPTIONS[0]);
     setLyrics("");
     setEra(ERA_OPTIONS[0]);
-  };
+    setSong(null);
+    setFailReason(null);
+  }, [stopRecording]);
 
   const startListening = () => {
+    setSong(null);
+    setFailReason(null);
     setSearchMode("quick");
     setAppState("listening");
   };
 
-  const stopSearch = () => {
-    setAppState("analyzing");
-  };
+  const runAnalysis = useCallback(async () => {
+    if (analyzingRef.current) return;
+    analyzingRef.current = true;
 
-  // Stage 1: after 8s without a match, fall back to Power Search
+    const modeAtStop = searchModeRef.current;
+    const blob = await stopRecording();
+    setAppState("analyzing");
+
+    const result = await analyzeAudio(blob);
+
+    if (result.ok) {
+      setSong(result.song);
+      setAppState("result");
+      analyzingRef.current = false;
+      return;
+    }
+
+    setFailReason(result.reason);
+
+    // Stage 1 miss → Power Search; Stage 2 miss → failed
+    if (modeAtStop === "quick") {
+      setSearchMode("power");
+      analyzingRef.current = false;
+      setAppState("listening");
+      return;
+    }
+
+    setAppState("failed");
+    analyzingRef.current = false;
+  }, [stopRecording]);
+
+  // Start mic whenever we enter listening
+  useEffect(() => {
+    if (appState !== "listening") return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        await startRecording();
+      } catch {
+        if (!cancelled) {
+          setAppState("idle");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appState, startRecording]);
+
+  // Stage 1: auto-stop after 8s in quick mode → analyze
   useEffect(() => {
     if (appState !== "listening" || searchMode !== "quick") return;
 
     const timer = window.setTimeout(() => {
-      setSearchMode("power");
+      void runAnalysis();
     }, STAGE_1_TIMEOUT_MS);
 
     return () => window.clearTimeout(timer);
-  }, [appState, searchMode]);
+  }, [appState, searchMode, runAnalysis]);
 
   const isListening = appState === "listening";
   const isPower = searchMode === "power" && isListening;
@@ -215,7 +298,9 @@ export default function Home() {
           <button
             type="button"
             aria-label="Back"
-            onClick={resetSession}
+            onClick={() => {
+              void resetSession();
+            }}
             className="flex h-10 w-10 items-center justify-center justify-self-start rounded-full text-black/80 transition-colors hover:bg-black/5"
           >
             <ChevronLeft className="h-7 w-7" strokeWidth={1.75} />
@@ -242,6 +327,11 @@ export default function Home() {
                 <span className="block">Sing</span>
                 <span className="block">Hum</span>
               </h1>
+              {micError && (
+                <p className="mt-6 max-w-xs text-center text-sm text-red-600">
+                  {micError}
+                </p>
+              )}
             </main>
 
             <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-12">
@@ -324,7 +414,9 @@ export default function Home() {
                   type="button"
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  onClick={stopSearch}
+                  onClick={() => {
+                    void runAnalysis();
+                  }}
                   className="rounded-full bg-[#1a73e8] px-8 py-3.5 text-sm font-medium text-white shadow-md transition-transform active:scale-95"
                 >
                   Stop Search
@@ -339,20 +431,54 @@ export default function Home() {
         {appState === "analyzing" && (
           <>
             <main className="relative z-10 flex h-full flex-col items-center justify-center px-8">
-              <motion.p
-                className="text-lg font-medium text-black/80"
-                animate={{ opacity: [0.4, 1, 0.4] }}
-                transition={{
-                  duration: 1.4,
-                  repeat: Infinity,
-                  ease: "easeInOut",
-                }}
-              >
-                Analyzing...
-              </motion.p>
+              <AnalyzingLoader />
             </main>
             <BottomColorWave />
           </>
+        )}
+
+        {appState === "result" && song && (
+          <main className="relative z-10 flex h-full flex-col items-center justify-center px-8 text-center">
+            <p className="mb-2 text-sm font-medium text-black/50">Song found</p>
+            <h2 className="text-3xl font-bold tracking-tight text-black">
+              {song.title}
+            </h2>
+            <p className="mt-2 text-lg text-black/70">{song.artist}</p>
+            {(song.album || song.year) && (
+              <p className="mt-1 text-sm text-black/45">
+                {[song.album, song.year].filter(Boolean).join(" · ")}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                void resetSession();
+              }}
+              className="mt-10 rounded-full bg-[#1a73e8] px-8 py-3 text-sm font-medium text-white"
+            >
+              Search again
+            </button>
+          </main>
+        )}
+
+        {appState === "failed" && (
+          <main className="relative z-10 flex h-full flex-col items-center justify-center px-8 text-center">
+            <h2 className="text-2xl font-semibold tracking-tight text-black">
+              No match
+            </h2>
+            <p className="mt-3 max-w-xs text-sm text-black/60">
+              {failReason ?? "We couldn't identify that song."}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                void resetSession();
+              }}
+              className="mt-10 rounded-full bg-[#1a73e8] px-8 py-3 text-sm font-medium text-white"
+            >
+              Try again
+            </button>
+          </main>
         )}
       </div>
     </div>
