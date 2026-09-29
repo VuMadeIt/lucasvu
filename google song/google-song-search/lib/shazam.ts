@@ -1,9 +1,21 @@
 import type { SongResult } from "@/lib/types";
 
+const CONFIDENCE_THRESHOLD = 70;
+
 type ShazamImageBag = {
   coverarthq?: string;
   coverart?: string;
   background?: string;
+};
+
+type ShazamMatch = {
+  id?: string;
+  offset?: number;
+  timeskew?: number;
+  frequencyskew?: number;
+  score?: number;
+  confidence?: number;
+  probability?: number;
 };
 
 type ShazamTrack = {
@@ -19,8 +31,20 @@ type ShazamTrack = {
 
 type ShazamRecognizePayload = {
   track?: ShazamTrack;
-  matches?: unknown[];
+  matches?: ShazamMatch[];
+  score?: number;
+  confidence?: number;
+  probability?: number;
 };
+
+export class LowConfidenceError extends Error {
+  readonly code = "LOW_CONFIDENCE" as const;
+
+  constructor(message = "Could not confidently identify audio") {
+    super(message);
+    this.name = "LowConfidenceError";
+  }
+}
 
 function extractAlbum(track: ShazamTrack): string | undefined {
   const songSection = track.sections?.find((section) => section.type === "SONG");
@@ -58,10 +82,59 @@ export function mapShazamTrack(track: ShazamTrack): SongResult | null {
 }
 
 /**
- * Forward audio to Shazam Core on RapidAPI.
- * Key stays server-side via RAPIDAPI_KEY.
+ * Normalize score-like values to a 0–100 percentage.
+ * Accepts 0–1 fractions or 0–100 percentages.
  */
-export async function recognizeWithShazam(audio: Blob): Promise<SongResult> {
+function toPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value >= 0 && value <= 1) return value * 100;
+  return Math.max(0, Math.min(100, value));
+}
+
+/**
+ * Pull a confidence percentage from common Shazam / RapidAPI shapes.
+ * Falls back to match skew heuristics when no explicit score exists.
+ */
+export function extractConfidence(payload: ShazamRecognizePayload): number | null {
+  const topLevel =
+    payload.confidence ?? payload.score ?? payload.probability;
+  if (typeof topLevel === "number") {
+    return toPercent(topLevel);
+  }
+
+  const match = payload.matches?.[0];
+  if (!match) return null;
+
+  const explicit =
+    match.confidence ?? match.score ?? match.probability;
+  if (typeof explicit === "number") {
+    return toPercent(explicit);
+  }
+
+  // Heuristic: large time/frequency skew ⇒ weaker fingerprint match (humming).
+  const timeSkew = Math.abs(match.timeskew ?? 0);
+  const freqSkew = Math.abs(match.frequencyskew ?? 0);
+  if (timeSkew === 0 && freqSkew === 0) {
+    // Present match with no skew signal — treat as strong enough.
+    return 85;
+  }
+
+  const penalty = timeSkew * 5000 + freqSkew * 8000;
+  return Math.max(0, Math.min(100, 95 - penalty));
+}
+
+export type ShazamRecognition = {
+  song: SongResult;
+  confidence: number;
+};
+
+/**
+ * Forward audio to Shazam Core on RapidAPI.
+ * Rejects missing/low-confidence matches so we never surface a wrong song.
+ */
+export async function recognizeWithShazam(
+  audio: Blob,
+): Promise<ShazamRecognition> {
   const apiKey = process.env.RAPIDAPI_KEY;
   const host =
     process.env.RAPIDAPI_HOST?.trim() || "shazam-core.p.rapidapi.com";
@@ -87,6 +160,7 @@ export async function recognizeWithShazam(audio: Blob): Promise<SongResult> {
     headers: {
       "X-RapidAPI-Key": apiKey,
       "X-RapidAPI-Host": host,
+      // Intentionally omit Content-Type so fetch sets multipart boundary.
     },
     body: formData,
   });
@@ -99,11 +173,17 @@ export async function recognizeWithShazam(audio: Blob): Promise<SongResult> {
   }
 
   const payload = (await response.json()) as ShazamRecognizePayload;
+  const matches = payload.matches ?? [];
   const mapped = payload.track ? mapShazamTrack(payload.track) : null;
 
-  if (!mapped) {
-    throw new Error("Shazam returned no matching track.");
+  if (!mapped || matches.length === 0) {
+    throw new LowConfidenceError();
   }
 
-  return mapped;
+  const confidence = extractConfidence(payload);
+  if (confidence === null || confidence < CONFIDENCE_THRESHOLD) {
+    throw new LowConfidenceError();
+  }
+
+  return { song: mapped, confidence };
 }

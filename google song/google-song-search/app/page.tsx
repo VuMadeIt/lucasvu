@@ -14,6 +14,8 @@ type AppState = "idle" | "listening" | "analyzing" | "result" | "failed";
 
 const GOOGLE_COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"] as const;
 const STAGE_1_TIMEOUT_MS = 8000;
+const LOW_CONFIDENCE_COPY =
+  "Couldn't identify the exact hum. Add a lyric snippet or genre below to narrow it down.";
 
 const GENRE_OPTIONS = [
   "Any genre",
@@ -198,13 +200,8 @@ export default function Home() {
 
   const { startRecording, stopRecording, error: micError } = useAudioRecorder();
 
-  const searchModeRef = useRef(searchMode);
   const filtersRef = useRef({ genre, lyrics, era });
   const analyzingRef = useRef(false);
-
-  useEffect(() => {
-    searchModeRef.current = searchMode;
-  }, [searchMode]);
 
   useEffect(() => {
     filtersRef.current = { genre, lyrics, era };
@@ -226,8 +223,11 @@ export default function Home() {
   const startListening = () => {
     setSongs([]);
     setResultSource(null);
-    setFailReason(null);
-    setSearchMode("quick");
+    // Keep Power Search mode after a low-confidence miss; otherwise start fresh.
+    if (searchMode !== "power") {
+      setFailReason(null);
+      setSearchMode("quick");
+    }
     setAppState("listening");
   };
 
@@ -235,10 +235,11 @@ export default function Home() {
     if (analyzingRef.current) return;
     analyzingRef.current = true;
 
-    const modeAtStop = searchModeRef.current;
     const filters = filtersRef.current;
     const blob = await stopRecording();
     setAppState("analyzing");
+    setSongs([]);
+    setResultSource(null);
 
     const result = await analyzeAudio(blob, {
       lyrics: filters.lyrics,
@@ -246,31 +247,53 @@ export default function Home() {
       era: filters.era,
     });
 
-    if (result.ok && result.songs.length > 0) {
+    if (result.success && result.ok && result.songs.length > 0) {
       setSongs(result.songs);
       setResultSource(result.source);
+      setFailReason(null);
       setAppState("result");
       analyzingRef.current = false;
       return;
     }
 
-    setFailReason(
-      result.ok
-        ? "Couldn't identify that tune. Try again with more clues."
-        : result.reason,
-    );
+    // Low confidence / no match — never show a wrong result card.
+    setSongs([]);
+    setResultSource(null);
+    setFailReason(LOW_CONFIDENCE_COPY);
+    setSearchMode("power");
+    setAppState("idle");
+    analyzingRef.current = false;
+  }, [stopRecording]);
 
-    // Stage 1 miss → Power Search; Stage 2 miss → failed
-    if (modeAtStop === "quick") {
-      setSearchMode("power");
+  const searchWithClues = useCallback(async () => {
+    if (analyzingRef.current) return;
+    analyzingRef.current = true;
+
+    const filters = filtersRef.current;
+    setAppState("analyzing");
+    setSongs([]);
+
+    const result = await analyzeAudio(null, {
+      lyrics: filters.lyrics,
+      genre: filters.genre,
+      era: filters.era,
+    });
+
+    if (result.success && result.ok && result.songs.length > 0) {
+      setSongs(result.songs);
+      setResultSource(result.source);
+      setFailReason(null);
+      setAppState("result");
       analyzingRef.current = false;
-      setAppState("listening");
       return;
     }
 
-    setAppState("failed");
+    setSongs([]);
+    setFailReason(LOW_CONFIDENCE_COPY);
+    setSearchMode("power");
+    setAppState("idle");
     analyzingRef.current = false;
-  }, [stopRecording]);
+  }, []);
   // Start mic whenever we enter listening
   useEffect(() => {
     if (appState !== "listening") return;
@@ -304,6 +327,7 @@ export default function Home() {
   }, [appState, searchMode, runAnalysis]);
 
   const isListening = appState === "listening";
+  const isPowerIdle = appState === "idle" && searchMode === "power";
   const isPower = searchMode === "power" && isListening;
 
   return (
@@ -338,7 +362,7 @@ export default function Home() {
           </button>
         </header>
 
-        {appState === "idle" && (
+        {appState === "idle" && !isPowerIdle && (
           <>
             <main className="relative z-10 flex h-full flex-col items-center px-8 pt-[22vh]">
               <h1 className="text-center text-6xl font-bold leading-none tracking-tight text-black sm:text-7xl">
@@ -361,6 +385,51 @@ export default function Home() {
                 className="flex h-16 w-16 items-center justify-center rounded-full bg-[#1a73e8] text-white shadow-lg transition-transform active:scale-95"
               >
                 <Mic className="h-7 w-7" strokeWidth={2} />
+              </button>
+            </div>
+          </>
+        )}
+
+        {isPowerIdle && (
+          <>
+            <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[14vh]">
+              <p className="mb-8 max-w-sm text-center text-xl font-medium leading-snug tracking-tight text-black">
+                {failReason ?? LOW_CONFIDENCE_COPY}
+              </p>
+
+              <PowerSearchFilters
+                genre={genre}
+                lyrics={lyrics}
+                era={era}
+                onGenreChange={setGenre}
+                onLyricsChange={setLyrics}
+                onEraChange={setEra}
+              />
+
+              {micError && (
+                <p className="mt-4 max-w-xs text-center text-sm text-red-600">
+                  {micError}
+                </p>
+              )}
+            </main>
+
+            <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-4 pb-10">
+              <button
+                type="button"
+                onClick={() => {
+                  void searchWithClues();
+                }}
+                className="rounded-full bg-[#1a73e8] px-8 py-3.5 text-sm font-medium text-white shadow-md transition-transform active:scale-95"
+              >
+                Search with clues
+              </button>
+              <button
+                type="button"
+                aria-label="Try humming again"
+                onClick={startListening}
+                className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f1f3f4] text-black transition-transform active:scale-95"
+              >
+                <Mic className="h-6 w-6" strokeWidth={2} />
               </button>
             </div>
           </>
