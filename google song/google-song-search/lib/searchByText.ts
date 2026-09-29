@@ -41,8 +41,10 @@ export async function searchByText(
   genre: string,
   era?: string,
 ): Promise<SongResult[]> {
-  const parts = [lyrics.trim(), genre.trim(), era?.trim()]
-    .filter((part) => part && !/^any\s/i.test(part));
+  const parts = [lyrics.trim(), genre.trim(), era?.trim()].filter((part) => {
+    if (!part) return false;
+    return !/^any(\s|$)/i.test(part);
+  });
 
   const term = parts.join(" ").trim();
   if (!term) return [];

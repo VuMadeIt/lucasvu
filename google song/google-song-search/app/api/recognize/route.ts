@@ -26,9 +26,10 @@ function failure(
 }
 
 function hasUsefulFilters(lyrics: string, genre: string, era: string) {
-  const meaningful = [lyrics, genre, era].filter(
-    (value) => value.trim() && !/^any\s/i.test(value.trim()),
-  );
+  const meaningful = [lyrics, genre, era].filter((value) => {
+    const trimmed = value.trim();
+    return trimmed && !/^any(\s|$)/i.test(trimmed);
+  });
   return meaningful.length > 0;
 }
 

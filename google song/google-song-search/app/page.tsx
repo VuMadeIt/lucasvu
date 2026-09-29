@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { AnimatePresence, motion, useSpring, useTransform } from "framer-motion";
 import { ChevronLeft, History, Loader2 } from "lucide-react";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { analyzeAudio, type SongResult } from "@/lib/analyzeAudio";
+import { useMaterialWebReady } from "@/lib/materialWeb";
 
 type SearchMode = "quick" | "power";
 type AppState = "listening" | "filters" | "analyzing" | "result";
@@ -13,27 +15,27 @@ const GOOGLE_COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"] as const;
 const STAGE_1_TIMEOUT_MS = 8000;
 
 const GENRE_OPTIONS = [
-  "Any genre",
-  "Pop",
-  "Hip-hop",
-  "R&B",
-  "Rock",
-  "Indie",
-  "Electronic",
-  "Country",
-  "Jazz",
-  "Classical",
+  { value: "any", label: "Any genre" },
+  { value: "pop", label: "Pop" },
+  { value: "hip-hop", label: "Hip-hop" },
+  { value: "rnb", label: "R&B" },
+  { value: "rock", label: "Rock" },
+  { value: "indie", label: "Indie" },
+  { value: "electronic", label: "Electronic" },
+  { value: "country", label: "Country" },
+  { value: "jazz", label: "Jazz" },
+  { value: "classical", label: "Classical" },
 ] as const;
 
 const ERA_OPTIONS = [
-  "Any era",
-  "2020s",
-  "2010s",
-  "2000s",
-  "1990s",
-  "1980s",
-  "1970s",
-  "Older",
+  { value: "any", label: "Any era" },
+  { value: "2020s", label: "2020s" },
+  { value: "2010s", label: "2010s" },
+  { value: "2000s", label: "2000s" },
+  { value: "1990s", label: "1990s" },
+  { value: "1980s", label: "1980s" },
+  { value: "1970s", label: "1970s" },
+  { value: "older", label: "Older" },
 ] as const;
 
 type ListeningPrompt =
@@ -207,8 +209,59 @@ function PowerSearchFilters({
   onLyricsChange: (value: string) => void;
   onEraChange: (value: string) => void;
 }) {
-  const fieldClass =
-    "w-full rounded-2xl border-0 bg-[#f1f3f4] p-4 text-sm text-[#1f1f1f] outline-none ring-0 placeholder:text-black/40 focus:bg-[#e8eaed]";
+  const materialReady = useMaterialWebReady();
+  const lyricsRef = useRef<HTMLElement | null>(null);
+  const genreRef = useRef<HTMLElement | null>(null);
+  const eraRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const field = lyricsRef.current;
+    if (!field) return;
+
+    const onInput = () => {
+      const value = (field as HTMLInputElement & { value: string }).value ?? "";
+      onLyricsChange(value);
+    };
+
+    field.addEventListener("input", onInput);
+    return () => field.removeEventListener("input", onInput);
+  }, [materialReady, onLyricsChange]);
+
+  useEffect(() => {
+    const select = genreRef.current;
+    if (!select) return;
+
+    const onChange = () => {
+      const value = (select as HTMLSelectElement & { value: string }).value ?? "";
+      onGenreChange(value);
+    };
+
+    select.addEventListener("change", onChange);
+    return () => select.removeEventListener("change", onChange);
+  }, [materialReady, onGenreChange]);
+
+  useEffect(() => {
+    const select = eraRef.current;
+    if (!select) return;
+
+    const onChange = () => {
+      const value = (select as HTMLSelectElement & { value: string }).value ?? "";
+      onEraChange(value);
+    };
+
+    select.addEventListener("change", onChange);
+    return () => select.removeEventListener("change", onChange);
+  }, [materialReady, onEraChange]);
+
+  if (!materialReady) {
+    return (
+      <div className="flex w-full max-w-sm flex-col gap-3">
+        <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
+        <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
+        <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -217,52 +270,68 @@ function PowerSearchFilters({
       transition={{ duration: 0.35, ease: "easeOut" }}
       className="flex w-full max-w-sm flex-col gap-3 text-left"
     >
-      <label className="block">
-        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
-          Remember any lyrics?
-        </span>
-        <input
-          type="text"
-          value={lyrics}
-          onChange={(e) => onLyricsChange(e.target.value)}
-          placeholder="e.g. never gonna give you up"
-          className={fieldClass}
-        />
-      </label>
+      <md-filled-text-field
+        ref={lyricsRef as never}
+        label="Remember any lyrics?"
+        placeholder="e.g. never gonna give you up"
+        value={lyrics}
+        className="w-full"
+        style={
+          {
+            "--md-filled-text-field-container-color": "#f1f3f4",
+            "--md-filled-text-field-focus-indicator-color": "#1a73e8",
+            "--md-filled-text-field-active-indicator-color": "#1a73e8",
+          } as CSSProperties
+        }
+      />
 
-      <label className="block">
-        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
-          Genre
-        </span>
-        <select
-          value={genre}
-          onChange={(e) => onGenreChange(e.target.value)}
-          className={`${fieldClass} appearance-none`}
-        >
-          {GENRE_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </label>
+      <md-filled-select
+        ref={genreRef as never}
+        label="Genre"
+        value={genre}
+        className="w-full"
+        style={
+          {
+            "--md-filled-select-text-field-container-color": "#f1f3f4",
+            "--md-filled-select-text-field-focus-active-indicator-color":
+              "#1a73e8",
+          } as CSSProperties
+        }
+      >
+        {GENRE_OPTIONS.map((option) => (
+          <md-select-option
+            key={option.value}
+            value={option.value}
+            {...(option.value === genre ? { selected: true } : {})}
+          >
+            <div slot="headline">{option.label}</div>
+          </md-select-option>
+        ))}
+      </md-filled-select>
 
-      <label className="block">
-        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
-          Era
-        </span>
-        <select
-          value={era}
-          onChange={(e) => onEraChange(e.target.value)}
-          className={`${fieldClass} appearance-none`}
-        >
-          {ERA_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </label>
+      <md-filled-select
+        ref={eraRef as never}
+        label="Era"
+        value={era}
+        className="w-full"
+        style={
+          {
+            "--md-filled-select-text-field-container-color": "#f1f3f4",
+            "--md-filled-select-text-field-focus-active-indicator-color":
+              "#1a73e8",
+          } as CSSProperties
+        }
+      >
+        {ERA_OPTIONS.map((option) => (
+          <md-select-option
+            key={option.value}
+            value={option.value}
+            {...(option.value === era ? { selected: true } : {})}
+          >
+            <div slot="headline">{option.label}</div>
+          </md-select-option>
+        ))}
+      </md-filled-select>
     </motion.div>
   );
 }
@@ -475,9 +544,9 @@ export default function Home() {
   const [appState, setAppState] = useState<AppState>("listening");
   const [listeningElapsedMs, setListeningElapsedMs] = useState(0);
   const [songs, setSongs] = useState<SongResult[]>([]);
-  const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0]);
+  const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0].value);
   const [lyrics, setLyrics] = useState("");
-  const [era, setEra] = useState<string>(ERA_OPTIONS[0]);
+  const [era, setEra] = useState<string>(ERA_OPTIONS[0].value);
 
   const {
     startRecording,
@@ -526,9 +595,9 @@ export default function Home() {
     await stopRecording();
     setListeningElapsedMs(0);
     setSongs([]);
-    setGenre(GENRE_OPTIONS[0]);
+    setGenre(GENRE_OPTIONS[0].value);
     setLyrics("");
-    setEra(ERA_OPTIONS[0]);
+    setEra(ERA_OPTIONS[0].value);
     setSearchMode("quick");
     listeningStartedAtRef.current = Date.now();
     setListenSession((value) => value + 1);
@@ -689,7 +758,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={tryAgainFromFilters}
-                className="mt-8 rounded-full bg-[#1a73e8] px-8 py-3 font-medium text-white shadow-md transition-transform active:scale-95"
+                className="mt-8 rounded-full bg-[#1a73e8] px-8 py-3 font-medium text-white shadow-none transition-all hover:bg-[#1557b0] active:scale-[0.98]"
               >
                 Try again
               </button>
