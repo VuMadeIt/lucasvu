@@ -7,7 +7,7 @@ import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { analyzeAudio, type SongResult } from "@/lib/analyzeAudio";
 
 type SearchMode = "quick" | "power";
-type AppState = "listening" | "analyzing" | "result";
+type AppState = "listening" | "filters" | "analyzing" | "result";
 
 const GOOGLE_COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"] as const;
 const STAGE_1_TIMEOUT_MS = 8000;
@@ -208,14 +208,14 @@ function PowerSearchFilters({
   onEraChange: (value: string) => void;
 }) {
   const fieldClass =
-    "w-full rounded-full bg-[#f1f3f4] px-5 py-3.5 text-sm text-black outline-none ring-0 placeholder:text-black/40 focus:bg-[#e8eaed]";
+    "w-full rounded-2xl border-0 bg-[#f1f3f4] p-4 text-sm text-[#1f1f1f] outline-none ring-0 placeholder:text-black/40 focus:bg-[#e8eaed]";
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
-      className="flex w-full max-w-sm flex-col gap-3"
+      className="flex w-full max-w-sm flex-col gap-3 text-left"
     >
       <label className="block">
         <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
@@ -279,12 +279,12 @@ function ResultCard({
   const spotifyUrl = `https://open.spotify.com/search/${query}`;
 
   return (
-    <main className="relative z-10 flex h-full flex-col items-center px-6 pb-8 pt-16">
+    <div className="flex w-full max-w-sm flex-col items-center">
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: "easeOut" }}
-        className="flex w-full max-w-sm flex-1 flex-col items-center"
+        className="flex w-full flex-col items-center"
       >
         <div className="w-full overflow-hidden rounded-3xl bg-[#f1f3f4] shadow-sm">
           {song.albumArt ? (
@@ -301,7 +301,7 @@ function ResultCard({
           )}
         </div>
 
-        <h2 className="mt-6 w-full text-center text-3xl font-bold leading-tight tracking-tight text-black">
+        <h2 className="mt-5 w-full text-center text-3xl font-bold leading-tight tracking-tight text-[#1f1f1f]">
           {song.title}
         </h2>
         <p className="mt-2 text-center text-lg text-black/65">{song.artist}</p>
@@ -311,7 +311,7 @@ function ResultCard({
           </p>
         )}
 
-        <div className="mt-8 flex items-center gap-5">
+        <div className="mt-6 flex items-center gap-5">
           <a
             href={youtubeUrl}
             target="_blank"
@@ -336,11 +336,11 @@ function ResultCard({
       <button
         type="button"
         onClick={onWrongSong}
-        className="mt-4 text-sm font-medium text-black/45 underline-offset-4 transition-colors hover:text-black/70 hover:underline"
+        className="mt-5 text-sm font-medium text-black/45 underline-offset-4 transition-colors hover:text-black/70 hover:underline"
       >
         Not the right song?
       </button>
-    </main>
+    </div>
   );
 }
 
@@ -359,13 +359,13 @@ function PowerResultsList({
   const spotifyUrl = `https://open.spotify.com/search/${query}`;
 
   return (
-    <main className="relative z-10 flex h-full flex-col px-5 pb-6 pt-14">
-      <div className="flex-1 space-y-4 overflow-y-auto pb-4">
+    <div className="flex w-full max-w-sm flex-col">
+      <div className="space-y-4">
         <motion.article
           initial={{ opacity: 0, y: 18, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.45, ease: "easeOut" }}
-          className="overflow-hidden rounded-[1.75rem] bg-[#f1f3f4]"
+          className="overflow-hidden rounded-[1.75rem] bg-[#f1f3f4] text-left"
         >
           {top.albumArt ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -390,7 +390,7 @@ function PowerResultsList({
                 </span>
               )}
             </div>
-            <h2 className="text-2xl font-bold leading-tight tracking-tight text-black">
+            <h2 className="text-2xl font-bold leading-tight tracking-tight text-[#1f1f1f]">
               {top.title}
             </h2>
             <p className="mt-1 text-base text-black/65">{top.artist}</p>
@@ -428,7 +428,7 @@ function PowerResultsList({
                 delay: 0.12 + index * 0.08,
                 ease: "easeOut",
               }}
-              className="flex items-center gap-3 rounded-2xl bg-[#f1f3f4] p-2.5 pr-3"
+              className="flex items-center gap-3 rounded-2xl bg-[#f1f3f4] p-2.5 pr-3 text-left"
             >
               {song.albumArt ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -443,7 +443,7 @@ function PowerResultsList({
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <h3 className="truncate text-sm font-semibold text-black">
+                <h3 className="truncate text-sm font-semibold text-[#1f1f1f]">
                   {song.title}
                 </h3>
                 <p className="truncate text-xs text-black/55">{song.artist}</p>
@@ -461,11 +461,11 @@ function PowerResultsList({
       <button
         type="button"
         onClick={onWrongSong}
-        className="mt-2 self-center text-sm font-medium text-black/45 underline-offset-4 transition-colors hover:text-black/70 hover:underline"
+        className="mt-5 self-center text-sm font-medium text-black/45 underline-offset-4 transition-colors hover:text-black/70 hover:underline"
       >
         Not the right song?
       </button>
-    </main>
+    </div>
   );
 }
 
@@ -500,16 +500,25 @@ export default function Home() {
     searchModeRef.current = searchMode;
   }, [searchMode]);
 
-  const enterPowerListening = useCallback(async () => {
+  const enterPowerFilters = useCallback(async () => {
     analyzingRef.current = false;
     await stopRecording();
+    setSongs([]);
+    setListeningElapsedMs(0);
+    listeningStartedAtRef.current = null;
+    setSearchMode("power");
+    setAppState("filters");
+  }, [stopRecording]);
+
+  const tryAgainFromFilters = useCallback(() => {
+    analyzingRef.current = false;
     setSongs([]);
     setListeningElapsedMs(0);
     listeningStartedAtRef.current = Date.now();
     setSearchMode("power");
     setListenSession((value) => value + 1);
     setAppState("listening");
-  }, [stopRecording]);
+  }, []);
 
   const resetSession = useCallback(async () => {
     analyzingRef.current = false;
@@ -550,14 +559,11 @@ export default function Home() {
       return;
     }
 
-    // Quick-mode miss → Power Search (listening starts immediately)
+    // Miss → Power Search filter screen (no wave)
     setSongs([]);
     analyzingRef.current = false;
     setSearchMode("power");
-    listeningStartedAtRef.current = Date.now();
-    setListeningElapsedMs(0);
-    setListenSession((value) => value + 1);
-    setAppState("listening");
+    setAppState("filters");
   }, [stopRecording]);
 
   // Start mic whenever we enter listening
@@ -573,7 +579,7 @@ export default function Home() {
         await startRecording();
       } catch {
         if (!cancelled) {
-          // Stay on listening UI so the wave/copy still render; show micError.
+          // Stay on listening UI; micError surfaces in the centered area.
         }
       }
     })();
@@ -583,9 +589,9 @@ export default function Home() {
     };
   }, [appState, startRecording, searchMode, listenSession]);
 
-  // Drive sequential listening copy from recording elapsed time (quick only)
+  // Progressive listening copy for both quick and power listening
   useEffect(() => {
-    if (appState !== "listening" || searchMode !== "quick") return;
+    if (appState !== "listening") return;
 
     const tick = () => {
       const startedAt = listeningStartedAtRef.current ?? Date.now();
@@ -595,24 +601,26 @@ export default function Home() {
     tick();
     const id = window.setInterval(tick, 100);
     return () => window.clearInterval(id);
-  }, [appState, searchMode]);
+  }, [appState, listenSession]);
 
-  // Stage 1: auto-stop after 8s in quick mode → analyze
+  // Auto-stop after 8s while listening (quick or power retry) → analyze with filters
   useEffect(() => {
-    if (appState !== "listening" || searchMode !== "quick") return;
+    if (appState !== "listening") return;
 
     const timer = window.setTimeout(() => {
       void runAnalysis();
     }, STAGE_1_TIMEOUT_MS);
 
     return () => window.clearTimeout(timer);
-  }, [appState, searchMode, runAnalysis]);
+  }, [appState, listenSession, runAnalysis]);
 
-  const isListening = appState === "listening";
+  const mainJustify =
+    appState === "result" || appState === "filters"
+      ? "justify-start"
+      : "justify-center";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-200 p-6">
-      {/* iPhone 16 Pro interactive mockup */}
       <div
         data-search-mode={searchMode}
         data-app-state={appState}
@@ -624,49 +632,48 @@ export default function Home() {
           className="pointer-events-none absolute left-1/2 top-2 z-50 h-[35px] w-[120px] -translate-x-1/2 rounded-full bg-black"
         />
 
-        <header className="absolute inset-x-0 top-0 z-20 grid grid-cols-3 items-center px-3 pt-14">
+        {/* Global fixed header */}
+        <header className="absolute top-0 right-0 left-0 z-30 flex items-center justify-between bg-transparent px-6 pt-12">
           <button
             type="button"
             aria-label="Back"
             onClick={() => {
               void resetSession();
             }}
-            className="flex h-10 w-10 items-center justify-center justify-self-start rounded-full text-[#1f1f1f]/80 transition-colors hover:bg-black/5"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[#1f1f1f]/80 transition-colors hover:bg-black/5"
           >
             <ChevronLeft className="h-7 w-7" strokeWidth={1.75} />
           </button>
 
-          <div className="flex justify-center">
-            <GoogleGLogo className="h-7 w-7" />
-          </div>
+          <GoogleGLogo className="h-7 w-7" />
 
           <button
             type="button"
             aria-label="History"
-            className="flex h-10 w-10 items-center justify-center justify-self-end rounded-full text-[#1f1f1f]/70 transition-colors hover:bg-black/5"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[#1f1f1f]/70 transition-colors hover:bg-black/5"
           >
             <History className="h-6 w-6" strokeWidth={1.75} />
           </button>
         </header>
 
-        {isListening && searchMode === "quick" && (
-          <>
-            <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[22%]">
+        {/* Global main content area — clears header, centers content */}
+        <main
+          className={`relative z-10 flex h-full w-full flex-col items-center overflow-y-auto px-6 pt-20 pb-24 text-center ${mainJustify}`}
+        >
+          {appState === "listening" && (
+            <>
               <ListeningHeadline elapsedMs={listeningElapsedMs} />
               {micError && (
                 <p className="mt-6 max-w-[260px] text-center text-sm text-red-600">
                   {micError}
                 </p>
               )}
-            </main>
-            <ReactiveBottomWave audioVolume={audioVolume} />
-          </>
-        )}
+            </>
+          )}
 
-        {isListening && searchMode === "power" && (
-          <>
-            <main className="relative z-10 flex h-full flex-col items-center overflow-y-auto px-5 pb-36 pt-20">
-              <h1 className="mb-6 max-w-[300px] text-center text-[28px] font-medium leading-[1.2] tracking-tight text-[#1f1f1f]">
+          {appState === "filters" && (
+            <div className="flex w-full max-w-sm flex-col items-center pt-4">
+              <h1 className="mb-6 text-center text-2xl font-medium text-[#1f1f1f]">
                 Humming was tricky? Let&apos;s narrow it down.
               </h1>
 
@@ -679,53 +686,44 @@ export default function Home() {
                 onEraChange={setEra}
               />
 
-              {micError && (
-                <p className="mt-4 max-w-[260px] text-center text-sm text-red-600">
-                  {micError}
-                </p>
-              )}
-            </main>
-
-            <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-8">
-              <motion.button
+              <button
                 type="button"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                onClick={() => {
-                  void runAnalysis();
-                }}
-                className="rounded-full bg-[#1a73e8] px-10 py-4 text-base font-medium text-white shadow-lg transition-transform active:scale-95"
+                onClick={tryAgainFromFilters}
+                className="mt-8 rounded-full bg-[#1a73e8] px-8 py-3 font-medium text-white shadow-md transition-transform active:scale-95"
               >
-                Stop Search
-              </motion.button>
+                Try again
+              </button>
             </div>
+          )}
 
-            <ReactiveBottomWave audioVolume={audioVolume} />
-          </>
-        )}
+          {appState === "analyzing" && <AnalyzingLoader />}
 
-        {appState === "analyzing" && (
-          <main className="relative z-10 flex h-full flex-col items-center justify-center px-8">
-            <AnalyzingLoader />
-          </main>
-        )}
+          {appState === "result" &&
+            songs.length > 0 &&
+            searchMode === "quick" && (
+              <ResultCard
+                song={songs[0]}
+                onWrongSong={() => {
+                  void enterPowerFilters();
+                }}
+              />
+            )}
 
-        {appState === "result" && songs.length > 0 && searchMode === "quick" && (
-          <ResultCard
-            song={songs[0]}
-            onWrongSong={() => {
-              void enterPowerListening();
-            }}
-          />
-        )}
+          {appState === "result" &&
+            songs.length > 0 &&
+            searchMode === "power" && (
+              <PowerResultsList
+                songs={songs}
+                onWrongSong={() => {
+                  void enterPowerFilters();
+                }}
+              />
+            )}
+        </main>
 
-        {appState === "result" && songs.length > 0 && searchMode === "power" && (
-          <PowerResultsList
-            songs={songs}
-            onWrongSong={() => {
-              void enterPowerListening();
-            }}
-          />
+        {/* Wave only while actively listening */}
+        {appState === "listening" && (
+          <ReactiveBottomWave audioVolume={audioVolume} />
         )}
       </div>
     </div>
