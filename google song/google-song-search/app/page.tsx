@@ -107,35 +107,67 @@ function SpotifyIcon({ className = "h-6 w-6" }: { className?: string }) {
 
 function ReactiveBottomWave({ audioVolume }: { audioVolume: number }) {
   const volumeSpring = useSpring(audioVolume, {
-    stiffness: 280,
-    damping: 26,
-    mass: 0.45,
+    stiffness: 320,
+    damping: 28,
+    mass: 0.4,
   });
 
   useEffect(() => {
     volumeSpring.set(audioVolume);
   }, [audioVolume, volumeSpring]);
 
-  const scaleY = useTransform(volumeSpring, [0, 1], [0.28, 1.55]);
-  const translateY = useTransform(volumeSpring, [0, 1], [28, -8]);
+  // Quiet → flatter arc; loud → taller horizon spike from the bottom.
+  const scaleY = useTransform(volumeSpring, [0, 1], [0.62, 1.45]);
 
   return (
-    <div className="pointer-events-none absolute bottom-0 z-0 h-32 w-full overflow-hidden">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-56 overflow-hidden">
+      {/* Horizon arc — sharp upward curve, color contained below the crest */}
       <motion.div
         aria-hidden
-        className="absolute bottom-0 left-0 h-full w-[120%] -ml-[10%] rounded-t-[100%]"
+        className="absolute -bottom-[100px] left-1/2 h-[200px] w-[150%] -translate-x-1/2"
         style={{
+          borderRadius: "50% 50% 0 0",
           originY: 1,
           scaleY,
-          y: translateY,
-          filter: "blur(28px)",
+          // Strongest at the crisp top edge, fades softly into white below.
+          WebkitMaskImage:
+            "linear-gradient(to bottom, #000 0%, #000 18%, transparent 100%)",
+          maskImage:
+            "linear-gradient(to bottom, #000 0%, #000 18%, transparent 100%)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35)",
         }}
         animate={{
           backgroundColor: [...GOOGLE_COLORS, GOOGLE_COLORS[0]],
         }}
         transition={{
           backgroundColor: {
-            duration: 5.5,
+            duration: 6,
+            repeat: Infinity,
+            ease: "easeInOut",
+          },
+          // scaleY is driven by the spring / useTransform binding
+        }}
+      />
+
+      {/* Soft bloom just under the crest — keeps edge sharp, no full-block blur */}
+      <motion.div
+        aria-hidden
+        className="absolute -bottom-[100px] left-1/2 h-[200px] w-[150%] -translate-x-1/2 opacity-50"
+        style={{
+          borderRadius: "50% 50% 0 0",
+          originY: 1,
+          scaleY,
+          WebkitMaskImage:
+            "linear-gradient(to bottom, #000 0%, transparent 42%)",
+          maskImage: "linear-gradient(to bottom, #000 0%, transparent 42%)",
+          filter: "blur(10px)",
+        }}
+        animate={{
+          backgroundColor: [...GOOGLE_COLORS, GOOGLE_COLORS[0]],
+        }}
+        transition={{
+          backgroundColor: {
+            duration: 6,
             repeat: Infinity,
             ease: "easeInOut",
           },
