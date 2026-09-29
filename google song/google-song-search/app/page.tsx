@@ -190,17 +190,25 @@ export default function Home() {
   const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0]);
   const [lyrics, setLyrics] = useState("");
   const [era, setEra] = useState<string>(ERA_OPTIONS[0]);
-  const [song, setSong] = useState<SongResult | null>(null);
+  const [songs, setSongs] = useState<SongResult[]>([]);
+  const [resultSource, setResultSource] = useState<"shazam" | "itunes" | null>(
+    null,
+  );
   const [failReason, setFailReason] = useState<string | null>(null);
 
   const { startRecording, stopRecording, error: micError } = useAudioRecorder();
 
   const searchModeRef = useRef(searchMode);
+  const filtersRef = useRef({ genre, lyrics, era });
   const analyzingRef = useRef(false);
 
   useEffect(() => {
     searchModeRef.current = searchMode;
   }, [searchMode]);
+
+  useEffect(() => {
+    filtersRef.current = { genre, lyrics, era };
+  }, [genre, lyrics, era]);
 
   const resetSession = useCallback(async () => {
     analyzingRef.current = false;
@@ -210,12 +218,14 @@ export default function Home() {
     setGenre(GENRE_OPTIONS[0]);
     setLyrics("");
     setEra(ERA_OPTIONS[0]);
-    setSong(null);
+    setSongs([]);
+    setResultSource(null);
     setFailReason(null);
   }, [stopRecording]);
 
   const startListening = () => {
-    setSong(null);
+    setSongs([]);
+    setResultSource(null);
     setFailReason(null);
     setSearchMode("quick");
     setAppState("listening");
@@ -226,19 +236,29 @@ export default function Home() {
     analyzingRef.current = true;
 
     const modeAtStop = searchModeRef.current;
+    const filters = filtersRef.current;
     const blob = await stopRecording();
     setAppState("analyzing");
 
-    const result = await analyzeAudio(blob);
+    const result = await analyzeAudio(blob, {
+      lyrics: filters.lyrics,
+      genre: filters.genre,
+      era: filters.era,
+    });
 
-    if (result.ok) {
-      setSong(result.song);
+    if (result.ok && result.songs.length > 0) {
+      setSongs(result.songs);
+      setResultSource(result.source);
       setAppState("result");
       analyzingRef.current = false;
       return;
     }
 
-    setFailReason(result.reason);
+    setFailReason(
+      result.ok
+        ? "Couldn't identify that tune. Try again with more clues."
+        : result.reason,
+    );
 
     // Stage 1 miss → Power Search; Stage 2 miss → failed
     if (modeAtStop === "quick") {
@@ -251,7 +271,6 @@ export default function Home() {
     setAppState("failed");
     analyzingRef.current = false;
   }, [stopRecording]);
-
   // Start mic whenever we enter listening
   useEffect(() => {
     if (appState !== "listening") return;
@@ -437,24 +456,53 @@ export default function Home() {
           </>
         )}
 
-        {appState === "result" && song && (
-          <main className="relative z-10 flex h-full flex-col items-center justify-center px-8 text-center">
-            <p className="mb-2 text-sm font-medium text-black/50">Song found</p>
-            <h2 className="text-3xl font-bold tracking-tight text-black">
-              {song.title}
-            </h2>
-            <p className="mt-2 text-lg text-black/70">{song.artist}</p>
-            {(song.album || song.year) && (
-              <p className="mt-1 text-sm text-black/45">
-                {[song.album, song.year].filter(Boolean).join(" · ")}
-              </p>
-            )}
+        {appState === "result" && songs.length > 0 && (
+          <main className="relative z-10 flex h-full flex-col px-6 pb-10 pt-20">
+            <p className="mb-4 text-center text-sm font-medium text-black/50">
+              {resultSource === "itunes"
+                ? "Top matches from your clues"
+                : "Song found"}
+            </p>
+
+            <div className="flex-1 space-y-3 overflow-y-auto">
+              {songs.map((song, index) => (
+                <article
+                  key={`${song.title}-${song.artist}-${index}`}
+                  className="flex items-center gap-3 rounded-2xl bg-[#f1f3f4] p-3"
+                >
+                  {song.albumArt ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={song.albumArt}
+                      alt=""
+                      className="h-16 w-16 shrink-0 rounded-xl object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-black/10 text-xs text-black/40">
+                      No art
+                    </div>
+                  )}
+                  <div className="min-w-0 text-left">
+                    <h2 className="truncate text-base font-semibold tracking-tight text-black">
+                      {song.title}
+                    </h2>
+                    <p className="truncate text-sm text-black/70">{song.artist}</p>
+                    {(song.album || song.year) && (
+                      <p className="truncate text-xs text-black/45">
+                        {[song.album, song.year].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+
             <button
               type="button"
               onClick={() => {
                 void resetSession();
               }}
-              className="mt-10 rounded-full bg-[#1a73e8] px-8 py-3 text-sm font-medium text-white"
+              className="mt-6 self-center rounded-full bg-[#1a73e8] px-8 py-3 text-sm font-medium text-white"
             >
               Search again
             </button>

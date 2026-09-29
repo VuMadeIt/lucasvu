@@ -1,57 +1,57 @@
-export type SongResult = {
-  title: string;
-  artist: string;
-  album?: string;
-  year?: number;
-};
+import type { RecognizeResponse, SongResult } from "@/lib/types";
+
+export type { SongResult };
 
 export type AnalyzeAudioResult =
-  | { ok: true; song: SongResult }
+  | { ok: true; songs: SongResult[]; source: "shazam" | "itunes" }
   | { ok: false; reason: string };
 
-const FAKE_SONGS: SongResult[] = [
-  {
-    title: "Blinding Lights",
-    artist: "The Weeknd",
-    album: "After Hours",
-    year: 2019,
-  },
-  {
-    title: "Levitating",
-    artist: "Dua Lipa",
-    album: "Future Nostalgia",
-    year: 2020,
-  },
-  {
-    title: "As It Was",
-    artist: "Harry Styles",
-    album: "Harry's House",
-    year: 2022,
-  },
-  {
-    title: "good 4 u",
-    artist: "Olivia Rodrigo",
-    album: "SOUR",
-    year: 2021,
-  },
-];
+type RecognizeFilters = {
+  lyrics?: string;
+  genre?: string;
+  era?: string;
+};
 
 /**
- * Mock Stage 1 / Stage 2 audio analysis.
- * Fakes a ~3s network round-trip, then randomly succeeds or fails.
+ * Client-side helper: posts audio + Power Search filters to our secure API route.
+ * The RapidAPI key never leaves the server.
  */
-export async function analyzeAudio(_blob: Blob | null): Promise<AnalyzeAudioResult> {
-  await new Promise((resolve) => setTimeout(resolve, 3000));
+export async function analyzeAudio(
+  blob: Blob | null,
+  filters: RecognizeFilters = {},
+): Promise<AnalyzeAudioResult> {
+  const formData = new FormData();
 
-  const succeeds = Math.random() > 0.45;
+  if (blob && blob.size > 0) {
+    formData.append("audio", blob, "recording.webm");
+  }
 
-  if (succeeds) {
-    const song = FAKE_SONGS[Math.floor(Math.random() * FAKE_SONGS.length)];
-    return { ok: true, song };
+  if (filters.lyrics) formData.append("lyrics", filters.lyrics);
+  if (filters.genre) formData.append("genre", filters.genre);
+  if (filters.era) formData.append("era", filters.era);
+
+  const response = await fetch("/api/recognize", {
+    method: "POST",
+    body: formData,
+  });
+
+  let data: RecognizeResponse;
+  try {
+    data = (await response.json()) as RecognizeResponse;
+  } catch {
+    return {
+      ok: false,
+      reason: "Couldn't read the recognition response.",
+    };
+  }
+
+  if (!data.ok) {
+    return { ok: false, reason: data.reason };
   }
 
   return {
-    ok: false,
-    reason: "Couldn't identify that tune. Try again with more clues.",
+    ok: true,
+    songs: data.songs,
+    source: data.source,
   };
 }
