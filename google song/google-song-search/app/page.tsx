@@ -1,45 +1,38 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, History, Loader2, Mic } from "lucide-react";
-import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { AnimatePresence, motion, useSpring, useTransform } from "framer-motion";
 import {
-  analyzeAudio,
-  type SongResult,
-} from "@/lib/analyzeAudio";
+  ChevronLeft,
+  FileAudio,
+  History,
+  Loader2,
+  Mic,
+  RefreshCw,
+} from "lucide-react";
+import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { analyzeAudio } from "@/lib/analyzeAudio";
 
 type SearchMode = "quick" | "power";
-type AppState = "idle" | "listening" | "analyzing" | "result" | "failed";
+type AppState = "idle" | "listening" | "analyzing" | "failed";
 
 const GOOGLE_COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"] as const;
 const STAGE_1_TIMEOUT_MS = 8000;
-const LOW_CONFIDENCE_COPY =
-  "Couldn't identify the exact hum. Add a lyric snippet or genre below to narrow it down.";
 
-const GENRE_OPTIONS = [
-  "Any genre",
-  "Pop",
-  "Hip-hop",
-  "R&B",
-  "Rock",
-  "Indie",
-  "Electronic",
-  "Country",
-  "Jazz",
-  "Classical",
-] as const;
+type ListeningPrompt =
+  | { key: "hero"; kind: "stacked" }
+  | { key: "listening" | "keep-going" | "almost"; kind: "line"; text: string };
 
-const ERA_OPTIONS = [
-  "Any era",
-  "2020s",
-  "2010s",
-  "2000s",
-  "1990s",
-  "1980s",
-  "1970s",
-  "Older",
-] as const;
+function getListeningPrompt(elapsedMs: number): ListeningPrompt {
+  if (elapsedMs < 2000) return { key: "hero", kind: "stacked" };
+  if (elapsedMs < 4000) {
+    return { key: "listening", kind: "line", text: "Listening..." };
+  }
+  if (elapsedMs < 6000) {
+    return { key: "keep-going", kind: "line", text: "Keep going..." };
+  }
+  return { key: "almost", kind: "line", text: "Almost there..." };
+}
 
 function GoogleGLogo({ className = "h-7 w-7" }: { className?: string }) {
   return (
@@ -69,107 +62,43 @@ function GoogleGLogo({ className = "h-7 w-7" }: { className?: string }) {
   );
 }
 
-function BottomColorWave() {
+function ReactiveBottomWave({ audioVolume }: { audioVolume: number }) {
+  const volumeSpring = useSpring(audioVolume, {
+    stiffness: 280,
+    damping: 26,
+    mass: 0.45,
+  });
+
+  useEffect(() => {
+    volumeSpring.set(audioVolume);
+  }, [audioVolume, volumeSpring]);
+
+  const scaleY = useTransform(volumeSpring, [0, 1], [0.28, 1.55]);
+  const translateY = useTransform(volumeSpring, [0, 1], [28, -8]);
+
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-40 overflow-visible">
+    <div className="pointer-events-none absolute bottom-0 z-0 h-32 w-full overflow-hidden">
       <motion.div
         aria-hidden
-        className="absolute bottom-0 left-1/2 h-40 w-[140%] -translate-x-1/2 rounded-t-[100%] blur-[80px]"
-        style={{ originY: 1 }}
+        className="absolute bottom-0 left-0 h-full w-[120%] -ml-[10%] rounded-t-[100%]"
+        style={{
+          originY: 1,
+          scaleY,
+          y: translateY,
+          filter: "blur(28px)",
+        }}
         animate={{
           backgroundColor: [...GOOGLE_COLORS, GOOGLE_COLORS[0]],
-          scaleY: [1, 1.3, 1],
         }}
         transition={{
           backgroundColor: {
-            duration: 6,
-            repeat: Infinity,
-            ease: "easeInOut",
-          },
-          scaleY: {
-            duration: 2.2,
+            duration: 5.5,
             repeat: Infinity,
             ease: "easeInOut",
           },
         }}
       />
     </div>
-  );
-}
-
-function PowerSearchFilters({
-  genre,
-  lyrics,
-  era,
-  onGenreChange,
-  onLyricsChange,
-  onEraChange,
-}: {
-  genre: string;
-  lyrics: string;
-  era: string;
-  onGenreChange: (value: string) => void;
-  onLyricsChange: (value: string) => void;
-  onEraChange: (value: string) => void;
-}) {
-  const fieldClass =
-    "w-full rounded-2xl bg-[#f1f3f4] px-4 py-3.5 text-sm text-black outline-none ring-0 placeholder:text-black/40 focus:bg-[#e8eaed]";
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 12 }}
-      transition={{ duration: 0.35, ease: "easeOut" }}
-      className="flex w-full max-w-sm flex-col gap-3"
-    >
-      <label className="block">
-        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
-          Genre
-        </span>
-        <select
-          value={genre}
-          onChange={(e) => onGenreChange(e.target.value)}
-          className={`${fieldClass} appearance-none`}
-        >
-          {GENRE_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="block">
-        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
-          Lyrics
-        </span>
-        <input
-          type="text"
-          value={lyrics}
-          onChange={(e) => onLyricsChange(e.target.value)}
-          placeholder="Any words you remember"
-          className={fieldClass}
-        />
-      </label>
-
-      <label className="block">
-        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
-          Era
-        </span>
-        <select
-          value={era}
-          onChange={(e) => onEraChange(e.target.value)}
-          className={`${fieldClass} appearance-none`}
-        >
-          {ERA_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </label>
-    </motion.div>
   );
 }
 
@@ -186,119 +115,105 @@ function AnalyzingLoader() {
   );
 }
 
+function ListeningHeadline({ elapsedMs }: { elapsedMs: number }) {
+  const prompt = getListeningPrompt(elapsedMs);
+
+  return (
+    <div className="relative flex min-h-[11rem] w-full items-center justify-center">
+      <AnimatePresence mode="wait">
+        {prompt.kind === "stacked" ? (
+          <motion.h1
+            key={prompt.key}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="absolute text-center text-6xl font-bold leading-none tracking-tight text-black sm:text-7xl"
+          >
+            <span className="block">Play</span>
+            <span className="block">Sing</span>
+            <span className="block">Hum</span>
+          </motion.h1>
+        ) : (
+          <motion.p
+            key={prompt.key}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="absolute text-center text-3xl font-medium tracking-tight text-black sm:text-4xl"
+          >
+            {prompt.text}
+          </motion.p>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function Home() {
   const [searchMode, setSearchMode] = useState<SearchMode>("quick");
   const [appState, setAppState] = useState<AppState>("idle");
-  const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0]);
-  const [lyrics, setLyrics] = useState("");
-  const [era, setEra] = useState<string>(ERA_OPTIONS[0]);
-  const [songs, setSongs] = useState<SongResult[]>([]);
-  const [resultSource, setResultSource] = useState<"shazam" | "itunes" | null>(
-    null,
-  );
-  const [failReason, setFailReason] = useState<string | null>(null);
+  const [listeningElapsedMs, setListeningElapsedMs] = useState(0);
 
-  const { startRecording, stopRecording, error: micError } = useAudioRecorder();
+  const {
+    startRecording,
+    stopRecording,
+    audioVolume,
+    error: micError,
+  } = useAudioRecorder();
 
-  const filtersRef = useRef({ genre, lyrics, era });
   const analyzingRef = useRef(false);
-
-  useEffect(() => {
-    filtersRef.current = { genre, lyrics, era };
-  }, [genre, lyrics, era]);
+  const listeningStartedAtRef = useRef<number | null>(null);
 
   const resetSession = useCallback(async () => {
     analyzingRef.current = false;
+    listeningStartedAtRef.current = null;
     await stopRecording();
+    setListeningElapsedMs(0);
     setAppState("idle");
     setSearchMode("quick");
-    setGenre(GENRE_OPTIONS[0]);
-    setLyrics("");
-    setEra(ERA_OPTIONS[0]);
-    setSongs([]);
-    setResultSource(null);
-    setFailReason(null);
   }, [stopRecording]);
 
   const startListening = () => {
-    setSongs([]);
-    setResultSource(null);
-    // Keep Power Search mode after a low-confidence miss; otherwise start fresh.
-    if (searchMode !== "power") {
-      setFailReason(null);
-      setSearchMode("quick");
-    }
+    setSearchMode("quick");
+    setListeningElapsedMs(0);
+    listeningStartedAtRef.current = Date.now();
     setAppState("listening");
+  };
+
+  const redirectToGoogle = (title: string, artist: string) => {
+    const query = encodeURIComponent(`${title} ${artist}`);
+    window.location.href = `https://www.google.com/search?q=${query}`;
   };
 
   const runAnalysis = useCallback(async () => {
     if (analyzingRef.current) return;
     analyzingRef.current = true;
 
-    const filters = filtersRef.current;
     const blob = await stopRecording();
     setAppState("analyzing");
-    setSongs([]);
-    setResultSource(null);
+    listeningStartedAtRef.current = null;
 
-    const result = await analyzeAudio(blob, {
-      lyrics: filters.lyrics,
-      genre: filters.genre,
-      era: filters.era,
-    });
+    const result = await analyzeAudio(blob);
 
     if (result.success && result.ok && result.songs.length > 0) {
-      setSongs(result.songs);
-      setResultSource(result.source);
-      setFailReason(null);
-      setAppState("result");
-      analyzingRef.current = false;
+      const song = result.songs[0];
+      redirectToGoogle(song.title, song.artist);
       return;
     }
 
-    // Low confidence / no match — never show a wrong result card.
-    setSongs([]);
-    setResultSource(null);
-    setFailReason(LOW_CONFIDENCE_COPY);
-    setSearchMode("power");
-    setAppState("idle");
+    setAppState("failed");
     analyzingRef.current = false;
   }, [stopRecording]);
 
-  const searchWithClues = useCallback(async () => {
-    if (analyzingRef.current) return;
-    analyzingRef.current = true;
-
-    const filters = filtersRef.current;
-    setAppState("analyzing");
-    setSongs([]);
-
-    const result = await analyzeAudio(null, {
-      lyrics: filters.lyrics,
-      genre: filters.genre,
-      era: filters.era,
-    });
-
-    if (result.success && result.ok && result.songs.length > 0) {
-      setSongs(result.songs);
-      setResultSource(result.source);
-      setFailReason(null);
-      setAppState("result");
-      analyzingRef.current = false;
-      return;
-    }
-
-    setSongs([]);
-    setFailReason(LOW_CONFIDENCE_COPY);
-    setSearchMode("power");
-    setAppState("idle");
-    analyzingRef.current = false;
-  }, []);
   // Start mic whenever we enter listening
   useEffect(() => {
     if (appState !== "listening") return;
 
     let cancelled = false;
+    listeningStartedAtRef.current = Date.now();
+    setListeningElapsedMs(0);
 
     (async () => {
       try {
@@ -315,6 +230,20 @@ export default function Home() {
     };
   }, [appState, startRecording]);
 
+  // Drive sequential listening copy from recording elapsed time
+  useEffect(() => {
+    if (appState !== "listening") return;
+
+    const tick = () => {
+      const startedAt = listeningStartedAtRef.current ?? Date.now();
+      setListeningElapsedMs(Date.now() - startedAt);
+    };
+
+    tick();
+    const id = window.setInterval(tick, 100);
+    return () => window.clearInterval(id);
+  }, [appState]);
+
   // Stage 1: auto-stop after 8s in quick mode → analyze
   useEffect(() => {
     if (appState !== "listening" || searchMode !== "quick") return;
@@ -327,8 +256,6 @@ export default function Home() {
   }, [appState, searchMode, runAnalysis]);
 
   const isListening = appState === "listening";
-  const isPowerIdle = appState === "idle" && searchMode === "power";
-  const isPower = searchMode === "power" && isListening;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#e8eaed]">
@@ -362,7 +289,7 @@ export default function Home() {
           </button>
         </header>
 
-        {appState === "idle" && !isPowerIdle && (
+        {appState === "idle" && (
           <>
             <main className="relative z-10 flex h-full flex-col items-center px-8 pt-[22vh]">
               <h1 className="text-center text-6xl font-bold leading-none tracking-tight text-black sm:text-7xl">
@@ -390,209 +317,39 @@ export default function Home() {
           </>
         )}
 
-        {isPowerIdle && (
-          <>
-            <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[14vh]">
-              <p className="mb-8 max-w-sm text-center text-xl font-medium leading-snug tracking-tight text-black">
-                {failReason ?? LOW_CONFIDENCE_COPY}
-              </p>
-
-              <PowerSearchFilters
-                genre={genre}
-                lyrics={lyrics}
-                era={era}
-                onGenreChange={setGenre}
-                onLyricsChange={setLyrics}
-                onEraChange={setEra}
-              />
-
-              {micError && (
-                <p className="mt-4 max-w-xs text-center text-sm text-red-600">
-                  {micError}
-                </p>
-              )}
-            </main>
-
-            <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-4 pb-10">
-              <button
-                type="button"
-                onClick={() => {
-                  void searchWithClues();
-                }}
-                className="rounded-full bg-[#1a73e8] px-8 py-3.5 text-sm font-medium text-white shadow-md transition-transform active:scale-95"
-              >
-                Search with clues
-              </button>
-              <button
-                type="button"
-                aria-label="Try humming again"
-                onClick={startListening}
-                className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f1f3f4] text-black transition-transform active:scale-95"
-              >
-                <Mic className="h-6 w-6" strokeWidth={2} />
-              </button>
-            </div>
-          </>
-        )}
-
         {isListening && (
           <>
-            <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[16vh]">
-              <div className="relative mb-8 flex min-h-[11rem] w-full items-start justify-center">
-                <AnimatePresence mode="wait">
-                  {!isPower ? (
-                    <motion.h1
-                      key="hero"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.4 }}
-                      className="absolute text-center text-6xl font-bold leading-none tracking-tight text-black sm:text-7xl"
-                    >
-                      <span className="block">Play</span>
-                      <span className="block">Sing</span>
-                      <span className="block">Hum</span>
-                    </motion.h1>
-                  ) : (
-                    <motion.p
-                      key="power-copy"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.4 }}
-                      className="absolute max-w-xs text-center text-2xl font-medium leading-snug tracking-tight text-black"
-                    >
-                      Humming was tricky? Add clues.
-                    </motion.p>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <AnimatePresence>
-                {isPower && (
-                  <PowerSearchFilters
-                    genre={genre}
-                    lyrics={lyrics}
-                    era={era}
-                    onGenreChange={setGenre}
-                    onLyricsChange={setLyrics}
-                    onEraChange={setEra}
-                  />
-                )}
-              </AnimatePresence>
-
-              {!isPower && (
-                <motion.p
-                  className="mt-4 text-lg font-normal tracking-tight text-black/70"
-                  animate={{ opacity: [0.4, 1, 0.4] }}
-                  transition={{
-                    duration: 1.8,
-                    repeat: Infinity,
-                    ease: "easeInOut",
-                  }}
-                >
-                  Listening...
-                </motion.p>
-              )}
+            <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[18vh]">
+              <ListeningHeadline elapsedMs={listeningElapsedMs} />
             </main>
-
-            <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-6 pb-10">
-              {isPower && (
-                <motion.button
-                  type="button"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  onClick={() => {
-                    void runAnalysis();
-                  }}
-                  className="rounded-full bg-[#1a73e8] px-8 py-3.5 text-sm font-medium text-white shadow-md transition-transform active:scale-95"
-                >
-                  Stop Search
-                </motion.button>
-              )}
-            </div>
-
-            <BottomColorWave />
+            <ReactiveBottomWave audioVolume={audioVolume} />
           </>
         )}
 
         {appState === "analyzing" && (
-          <>
-            <main className="relative z-10 flex h-full flex-col items-center justify-center px-8">
-              <AnalyzingLoader />
-            </main>
-            <BottomColorWave />
-          </>
-        )}
-
-        {appState === "result" && songs.length > 0 && (
-          <main className="relative z-10 flex h-full flex-col px-6 pb-10 pt-20">
-            <p className="mb-4 text-center text-sm font-medium text-black/50">
-              {resultSource === "itunes"
-                ? "Top matches from your clues"
-                : "Song found"}
-            </p>
-
-            <div className="flex-1 space-y-3 overflow-y-auto">
-              {songs.map((song, index) => (
-                <article
-                  key={`${song.title}-${song.artist}-${index}`}
-                  className="flex items-center gap-3 rounded-2xl bg-[#f1f3f4] p-3"
-                >
-                  {song.albumArt ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={song.albumArt}
-                      alt=""
-                      className="h-16 w-16 shrink-0 rounded-xl object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-black/10 text-xs text-black/40">
-                      No art
-                    </div>
-                  )}
-                  <div className="min-w-0 text-left">
-                    <h2 className="truncate text-base font-semibold tracking-tight text-black">
-                      {song.title}
-                    </h2>
-                    <p className="truncate text-sm text-black/70">{song.artist}</p>
-                    {(song.album || song.year) && (
-                      <p className="truncate text-xs text-black/45">
-                        {[song.album, song.year].filter(Boolean).join(" · ")}
-                      </p>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                void resetSession();
-              }}
-              className="mt-6 self-center rounded-full bg-[#1a73e8] px-8 py-3 text-sm font-medium text-white"
-            >
-              Search again
-            </button>
+          <main className="relative z-10 flex h-full flex-col items-center justify-center px-8">
+            <AnalyzingLoader />
           </main>
         )}
 
         {appState === "failed" && (
           <main className="relative z-10 flex h-full flex-col items-center justify-center px-8 text-center">
-            <h2 className="text-2xl font-semibold tracking-tight text-black">
-              No match
-            </h2>
-            <p className="mt-3 max-w-xs text-sm text-black/60">
-              {failReason ?? "We couldn't identify that song."}
-            </p>
+            <div className="mb-8 flex h-28 w-28 items-center justify-center rounded-3xl bg-[#f1f3f4]">
+              <FileAudio
+                className="h-14 w-14 text-black/35"
+                strokeWidth={1.5}
+                aria-hidden
+              />
+            </div>
+            <p className="text-lg font-medium text-black/55">No matched song</p>
             <button
               type="button"
               onClick={() => {
                 void resetSession();
               }}
-              className="mt-10 rounded-full bg-[#1a73e8] px-8 py-3 text-sm font-medium text-white"
+              className="mt-8 inline-flex items-center gap-2 rounded-full bg-[#f1f3f4] px-6 py-3 text-sm font-medium text-black transition-colors hover:bg-[#e8eaed]"
             >
+              <RefreshCw className="h-4 w-4" strokeWidth={2} />
               Try again
             </button>
           </main>
