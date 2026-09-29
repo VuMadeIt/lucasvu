@@ -208,7 +208,7 @@ function PowerSearchFilters({
   onEraChange: (value: string) => void;
 }) {
   const fieldClass =
-    "w-full rounded-2xl bg-[#f1f3f4] px-4 py-3.5 text-sm text-black outline-none ring-0 placeholder:text-black/40 focus:bg-[#e8eaed]";
+    "w-full rounded-full bg-[#f1f3f4] px-5 py-3.5 text-sm text-black outline-none ring-0 placeholder:text-black/40 focus:bg-[#e8eaed]";
 
   return (
     <motion.div
@@ -217,6 +217,19 @@ function PowerSearchFilters({
       transition={{ duration: 0.35, ease: "easeOut" }}
       className="flex w-full max-w-sm flex-col gap-3"
     >
+      <label className="block">
+        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
+          Remember any lyrics?
+        </span>
+        <input
+          type="text"
+          value={lyrics}
+          onChange={(e) => onLyricsChange(e.target.value)}
+          placeholder="e.g. never gonna give you up"
+          className={fieldClass}
+        />
+      </label>
+
       <label className="block">
         <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
           Genre
@@ -232,19 +245,6 @@ function PowerSearchFilters({
             </option>
           ))}
         </select>
-      </label>
-
-      <label className="block">
-        <span className="mb-1.5 block px-1 text-xs font-medium text-black/55">
-          Lyrics
-        </span>
-        <input
-          type="text"
-          value={lyrics}
-          onChange={(e) => onLyricsChange(e.target.value)}
-          placeholder="Any words you remember"
-          className={fieldClass}
-        />
       </label>
 
       <label className="block">
@@ -344,11 +344,136 @@ function ResultCard({
   );
 }
 
+function PowerResultsList({
+  songs,
+  onWrongSong,
+}: {
+  songs: SongResult[];
+  onWrongSong: () => void;
+}) {
+  const [top, ...rest] = songs;
+  if (!top) return null;
+
+  const query = encodeURIComponent(`${top.title} ${top.artist}`);
+  const youtubeUrl = `https://www.youtube.com/results?search_query=${query}`;
+  const spotifyUrl = `https://open.spotify.com/search/${query}`;
+
+  return (
+    <main className="relative z-10 flex h-full flex-col px-5 pb-6 pt-14">
+      <div className="flex-1 space-y-4 overflow-y-auto pb-4">
+        <motion.article
+          initial={{ opacity: 0, y: 18, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.45, ease: "easeOut" }}
+          className="overflow-hidden rounded-[1.75rem] bg-[#f1f3f4]"
+        >
+          {top.albumArt ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={top.albumArt}
+              alt=""
+              className="aspect-square w-full object-cover"
+            />
+          ) : (
+            <div className="flex aspect-square w-full items-center justify-center bg-gradient-to-br from-[#e8eaed] to-[#d2d5d9] text-sm text-black/40">
+              No cover art
+            </div>
+          )}
+          <div className="px-5 pb-5 pt-4">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+                Top match
+              </p>
+              {typeof top.matchPercent === "number" && (
+                <span className="rounded-full bg-[#1a73e8]/12 px-2.5 py-1 text-xs font-semibold text-[#1a73e8]">
+                  {top.matchPercent}% match
+                </span>
+              )}
+            </div>
+            <h2 className="text-2xl font-bold leading-tight tracking-tight text-black">
+              {top.title}
+            </h2>
+            <p className="mt-1 text-base text-black/65">{top.artist}</p>
+            <div className="mt-4 flex items-center gap-3">
+              <a
+                href={youtubeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open on YouTube"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white"
+              >
+                <YouTubeIcon className="h-6 w-6" />
+              </a>
+              <a
+                href={spotifyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open on Spotify"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white"
+              >
+                <SpotifyIcon className="h-6 w-6" />
+              </a>
+            </div>
+          </div>
+        </motion.article>
+
+        <div className="space-y-2">
+          {rest.map((song, index) => (
+            <motion.article
+              key={`${song.title}-${song.artist}-${index}`}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: 0.35,
+                delay: 0.12 + index * 0.08,
+                ease: "easeOut",
+              }}
+              className="flex items-center gap-3 rounded-2xl bg-[#f1f3f4] p-2.5 pr-3"
+            >
+              {song.albumArt ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={song.albumArt}
+                  alt=""
+                  className="h-14 w-14 shrink-0 rounded-xl object-cover"
+                />
+              ) : (
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-black/8 text-[10px] text-black/35">
+                  Art
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate text-sm font-semibold text-black">
+                  {song.title}
+                </h3>
+                <p className="truncate text-xs text-black/55">{song.artist}</p>
+              </div>
+              {typeof song.matchPercent === "number" && (
+                <span className="shrink-0 rounded-full bg-black/5 px-2.5 py-1 text-[11px] font-semibold text-black/60">
+                  {song.matchPercent}%
+                </span>
+              )}
+            </motion.article>
+          ))}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onWrongSong}
+        className="mt-2 self-center text-sm font-medium text-black/45 underline-offset-4 transition-colors hover:text-black/70 hover:underline"
+      >
+        Not the right song?
+      </button>
+    </main>
+  );
+}
+
 export default function Home() {
   const [searchMode, setSearchMode] = useState<SearchMode>("quick");
   const [appState, setAppState] = useState<AppState>("idle");
   const [listeningElapsedMs, setListeningElapsedMs] = useState(0);
-  const [song, setSong] = useState<SongResult | null>(null);
+  const [songs, setSongs] = useState<SongResult[]>([]);
   const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0]);
   const [lyrics, setLyrics] = useState("");
   const [era, setEra] = useState<string>(ERA_OPTIONS[0]);
@@ -362,16 +487,21 @@ export default function Home() {
 
   const analyzingRef = useRef(false);
   const listeningStartedAtRef = useRef<number | null>(null);
+  const searchModeRef = useRef(searchMode);
   const filtersRef = useRef({ genre, lyrics, era });
 
   useEffect(() => {
     filtersRef.current = { genre, lyrics, era };
   }, [genre, lyrics, era]);
 
+  useEffect(() => {
+    searchModeRef.current = searchMode;
+  }, [searchMode]);
+
   const enterPowerIdle = useCallback(() => {
     analyzingRef.current = false;
     listeningStartedAtRef.current = null;
-    setSong(null);
+    setSongs([]);
     setListeningElapsedMs(0);
     setSearchMode("power");
     setAppState("idle");
@@ -382,7 +512,7 @@ export default function Home() {
     listeningStartedAtRef.current = null;
     await stopRecording();
     setListeningElapsedMs(0);
-    setSong(null);
+    setSongs([]);
     setGenre(GENRE_OPTIONS[0]);
     setLyrics("");
     setEra(ERA_OPTIONS[0]);
@@ -391,7 +521,7 @@ export default function Home() {
   }, [stopRecording]);
 
   const startListening = () => {
-    setSong(null);
+    setSongs([]);
     setListeningElapsedMs(0);
     listeningStartedAtRef.current = Date.now();
     // Stay in power mode when retrying from Power Search idle.
@@ -405,26 +535,28 @@ export default function Home() {
     if (analyzingRef.current) return;
     analyzingRef.current = true;
 
+    const modeAtStop = searchModeRef.current;
     const filters = filtersRef.current;
     const blob = await stopRecording();
     setAppState("analyzing");
     listeningStartedAtRef.current = null;
 
     const result = await analyzeAudio(blob, {
+      searchMode: modeAtStop,
       lyrics: filters.lyrics,
       genre: filters.genre,
       era: filters.era,
     });
 
     if (result.success && result.ok && result.songs.length > 0) {
-      setSong(result.songs[0]);
+      setSongs(result.songs);
       setAppState("result");
       analyzingRef.current = false;
       return;
     }
 
     // Quick-mode miss → Power Search idle
-    setSong(null);
+    setSongs([]);
     setSearchMode("power");
     setAppState("idle");
     analyzingRef.current = false;
@@ -586,15 +718,17 @@ export default function Home() {
 
             {searchMode === "power" && (
               <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-10">
-                <button
+                <motion.button
                   type="button"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
                   onClick={() => {
                     void runAnalysis();
                   }}
-                  className="rounded-full bg-[#1a73e8] px-8 py-3.5 text-sm font-medium text-white shadow-md transition-transform active:scale-95"
+                  className="rounded-full bg-[#1a73e8] px-10 py-4 text-base font-medium text-white shadow-lg transition-transform active:scale-95"
                 >
                   Stop Search
-                </button>
+                </motion.button>
               </div>
             )}
 
@@ -608,8 +742,12 @@ export default function Home() {
           </main>
         )}
 
-        {appState === "result" && song && (
-          <ResultCard song={song} onWrongSong={enterPowerIdle} />
+        {appState === "result" && songs.length > 0 && searchMode === "quick" && (
+          <ResultCard song={songs[0]} onWrongSong={enterPowerIdle} />
+        )}
+
+        {appState === "result" && songs.length > 0 && searchMode === "power" && (
+          <PowerResultsList songs={songs} onWrongSong={enterPowerIdle} />
         )}
       </div>
     </div>

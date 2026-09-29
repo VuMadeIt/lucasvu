@@ -4,12 +4,13 @@ export type SongResult = {
   album?: string;
   year?: number;
   albumArt?: string;
+  matchPercent?: number;
 };
 
 export type RecognizeSuccess = {
   success: true;
   ok: true;
-  source: "shazam" | "itunes";
+  source: "shazam" | "itunes" | "mock";
   songs: SongResult[];
   confidence?: number;
 };
