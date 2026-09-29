@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useSpring, useTransform } from "framer-motion";
-import { ChevronLeft, History, Loader2, Mic } from "lucide-react";
+import { ChevronLeft, History, Loader2 } from "lucide-react";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { analyzeAudio, type SongResult } from "@/lib/analyzeAudio";
 
 type SearchMode = "quick" | "power";
-type AppState = "idle" | "listening" | "analyzing" | "result";
+type AppState = "listening" | "analyzing" | "result";
 
 const GOOGLE_COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"] as const;
 const STAGE_1_TIMEOUT_MS = 8000;
@@ -160,7 +160,7 @@ function ListeningHeadline({ elapsedMs }: { elapsedMs: number }) {
   const prompt = getListeningPrompt(elapsedMs);
 
   return (
-    <div className="relative flex min-h-[11rem] w-full items-center justify-center">
+    <div className="relative flex min-h-[12rem] w-full items-center justify-center">
       <AnimatePresence mode="wait">
         {prompt.kind === "stacked" ? (
           <motion.h1
@@ -169,7 +169,7 @@ function ListeningHeadline({ elapsedMs }: { elapsedMs: number }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.35, ease: "easeOut" }}
-            className="absolute text-center text-6xl font-bold leading-none tracking-tight text-black sm:text-7xl"
+            className="absolute text-center font-medium text-[56px] leading-[1.15] tracking-tight text-[#1f1f1f]"
           >
             <span className="block">Play</span>
             <span className="block">Sing</span>
@@ -182,7 +182,7 @@ function ListeningHeadline({ elapsedMs }: { elapsedMs: number }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.35, ease: "easeOut" }}
-            className="absolute text-center text-3xl font-medium tracking-tight text-black sm:text-4xl"
+            className="absolute text-center font-medium text-[40px] leading-[1.15] tracking-tight text-[#1f1f1f]"
           >
             {prompt.text}
           </motion.p>
@@ -471,7 +471,8 @@ function PowerResultsList({
 
 export default function Home() {
   const [searchMode, setSearchMode] = useState<SearchMode>("quick");
-  const [appState, setAppState] = useState<AppState>("idle");
+  // Google's screen starts listening immediately — no idle mic CTA.
+  const [appState, setAppState] = useState<AppState>("listening");
   const [listeningElapsedMs, setListeningElapsedMs] = useState(0);
   const [songs, setSongs] = useState<SongResult[]>([]);
   const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0]);
@@ -489,6 +490,7 @@ export default function Home() {
   const listeningStartedAtRef = useRef<number | null>(null);
   const searchModeRef = useRef(searchMode);
   const filtersRef = useRef({ genre, lyrics, era });
+  const [listenSession, setListenSession] = useState(0);
 
   useEffect(() => {
     filtersRef.current = { genre, lyrics, era };
@@ -498,14 +500,16 @@ export default function Home() {
     searchModeRef.current = searchMode;
   }, [searchMode]);
 
-  const enterPowerIdle = useCallback(() => {
+  const enterPowerListening = useCallback(async () => {
     analyzingRef.current = false;
-    listeningStartedAtRef.current = null;
+    await stopRecording();
     setSongs([]);
     setListeningElapsedMs(0);
+    listeningStartedAtRef.current = Date.now();
     setSearchMode("power");
-    setAppState("idle");
-  }, []);
+    setListenSession((value) => value + 1);
+    setAppState("listening");
+  }, [stopRecording]);
 
   const resetSession = useCallback(async () => {
     analyzingRef.current = false;
@@ -516,20 +520,11 @@ export default function Home() {
     setGenre(GENRE_OPTIONS[0]);
     setLyrics("");
     setEra(ERA_OPTIONS[0]);
-    setAppState("idle");
     setSearchMode("quick");
-  }, [stopRecording]);
-
-  const startListening = () => {
-    setSongs([]);
-    setListeningElapsedMs(0);
     listeningStartedAtRef.current = Date.now();
-    // Stay in power mode when retrying from Power Search idle.
-    if (searchMode !== "power") {
-      setSearchMode("quick");
-    }
+    setListenSession((value) => value + 1);
     setAppState("listening");
-  };
+  }, [stopRecording]);
 
   const runAnalysis = useCallback(async () => {
     if (analyzingRef.current) return;
@@ -555,11 +550,14 @@ export default function Home() {
       return;
     }
 
-    // Quick-mode miss → Power Search idle
+    // Quick-mode miss → Power Search (listening starts immediately)
     setSongs([]);
-    setSearchMode("power");
-    setAppState("idle");
     analyzingRef.current = false;
+    setSearchMode("power");
+    listeningStartedAtRef.current = Date.now();
+    setListeningElapsedMs(0);
+    setListenSession((value) => value + 1);
+    setAppState("listening");
   }, [stopRecording]);
 
   // Start mic whenever we enter listening
@@ -575,7 +573,7 @@ export default function Home() {
         await startRecording();
       } catch {
         if (!cancelled) {
-          setAppState("idle");
+          // Stay on listening UI so the wave/copy still render; show micError.
         }
       }
     })();
@@ -583,11 +581,11 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [appState, startRecording]);
+  }, [appState, startRecording, searchMode, listenSession]);
 
-  // Drive sequential listening copy from recording elapsed time
+  // Drive sequential listening copy from recording elapsed time (quick only)
   useEffect(() => {
-    if (appState !== "listening") return;
+    if (appState !== "listening" || searchMode !== "quick") return;
 
     const tick = () => {
       const startedAt = listeningStartedAtRef.current ?? Date.now();
@@ -597,7 +595,7 @@ export default function Home() {
     tick();
     const id = window.setInterval(tick, 100);
     return () => window.clearInterval(id);
-  }, [appState]);
+  }, [appState, searchMode]);
 
   // Stage 1: auto-stop after 8s in quick mode → analyze
   useEffect(() => {
@@ -611,24 +609,29 @@ export default function Home() {
   }, [appState, searchMode, runAnalysis]);
 
   const isListening = appState === "listening";
-  const isPowerIdle = appState === "idle" && searchMode === "power";
-  const isQuickIdle = appState === "idle" && searchMode === "quick";
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#e8eaed]">
+    <div className="flex min-h-screen items-center justify-center bg-neutral-200 p-6">
+      {/* iPhone 16 Pro interactive mockup */}
       <div
         data-search-mode={searchMode}
         data-app-state={appState}
-        className="relative mx-auto h-screen w-full max-w-md overflow-hidden bg-white text-black"
+        className="relative h-[874px] w-[402px] overflow-hidden rounded-[55px] border-[14px] border-black bg-white text-[#1f1f1f] shadow-2xl"
       >
-        <header className="absolute inset-x-0 top-0 z-20 grid grid-cols-3 items-center px-3 pt-3">
+        {/* Dynamic Island */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-2 z-50 h-[35px] w-[120px] -translate-x-1/2 rounded-full bg-black"
+        />
+
+        <header className="absolute inset-x-0 top-0 z-20 grid grid-cols-3 items-center px-3 pt-14">
           <button
             type="button"
             aria-label="Back"
             onClick={() => {
               void resetSession();
             }}
-            className="flex h-10 w-10 items-center justify-center justify-self-start rounded-full text-black/80 transition-colors hover:bg-black/5"
+            className="flex h-10 w-10 items-center justify-center justify-self-start rounded-full text-[#1f1f1f]/80 transition-colors hover:bg-black/5"
           >
             <ChevronLeft className="h-7 w-7" strokeWidth={1.75} />
           </button>
@@ -640,44 +643,30 @@ export default function Home() {
           <button
             type="button"
             aria-label="History"
-            className="flex h-10 w-10 items-center justify-center justify-self-end rounded-full text-black/70 transition-colors hover:bg-black/5"
+            className="flex h-10 w-10 items-center justify-center justify-self-end rounded-full text-[#1f1f1f]/70 transition-colors hover:bg-black/5"
           >
             <History className="h-6 w-6" strokeWidth={1.75} />
           </button>
         </header>
 
-        {isQuickIdle && (
+        {isListening && searchMode === "quick" && (
           <>
-            <main className="relative z-10 flex h-full flex-col items-center px-8 pt-[22vh]">
-              <h1 className="text-center text-6xl font-bold leading-none tracking-tight text-black sm:text-7xl">
-                <span className="block">Play</span>
-                <span className="block">Sing</span>
-                <span className="block">Hum</span>
-              </h1>
+            <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[22%]">
+              <ListeningHeadline elapsedMs={listeningElapsedMs} />
               {micError && (
-                <p className="mt-6 max-w-xs text-center text-sm text-red-600">
+                <p className="mt-6 max-w-[260px] text-center text-sm text-red-600">
                   {micError}
                 </p>
               )}
             </main>
-
-            <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-12">
-              <button
-                type="button"
-                aria-label="Start listening"
-                onClick={startListening}
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-[#1a73e8] text-white shadow-lg transition-transform active:scale-95"
-              >
-                <Mic className="h-7 w-7" strokeWidth={2} />
-              </button>
-            </div>
+            <ReactiveBottomWave audioVolume={audioVolume} />
           </>
         )}
 
-        {isPowerIdle && (
+        {isListening && searchMode === "power" && (
           <>
-            <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[12vh]">
-              <h1 className="mb-8 max-w-sm text-center text-2xl font-medium leading-snug tracking-tight text-black sm:text-3xl">
+            <main className="relative z-10 flex h-full flex-col items-center overflow-y-auto px-5 pb-36 pt-20">
+              <h1 className="mb-6 max-w-[300px] text-center text-[28px] font-medium leading-[1.2] tracking-tight text-[#1f1f1f]">
                 Humming was tricky? Let&apos;s narrow it down.
               </h1>
 
@@ -691,46 +680,25 @@ export default function Home() {
               />
 
               {micError && (
-                <p className="mt-4 max-w-xs text-center text-sm text-red-600">
+                <p className="mt-4 max-w-[260px] text-center text-sm text-red-600">
                   {micError}
                 </p>
               )}
             </main>
 
-            <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-12">
-              <button
+            <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-8">
+              <motion.button
                 type="button"
-                aria-label="Start listening"
-                onClick={startListening}
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-[#1a73e8] text-white shadow-lg transition-transform active:scale-95"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                onClick={() => {
+                  void runAnalysis();
+                }}
+                className="rounded-full bg-[#1a73e8] px-10 py-4 text-base font-medium text-white shadow-lg transition-transform active:scale-95"
               >
-                <Mic className="h-7 w-7" strokeWidth={2} />
-              </button>
+                Stop Search
+              </motion.button>
             </div>
-          </>
-        )}
-
-        {isListening && (
-          <>
-            <main className="relative z-10 flex h-full flex-col items-center px-6 pt-[18vh]">
-              <ListeningHeadline elapsedMs={listeningElapsedMs} />
-            </main>
-
-            {searchMode === "power" && (
-              <div className="absolute inset-x-0 bottom-0 z-20 flex justify-center pb-10">
-                <motion.button
-                  type="button"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  onClick={() => {
-                    void runAnalysis();
-                  }}
-                  className="rounded-full bg-[#1a73e8] px-10 py-4 text-base font-medium text-white shadow-lg transition-transform active:scale-95"
-                >
-                  Stop Search
-                </motion.button>
-              </div>
-            )}
 
             <ReactiveBottomWave audioVolume={audioVolume} />
           </>
@@ -743,11 +711,21 @@ export default function Home() {
         )}
 
         {appState === "result" && songs.length > 0 && searchMode === "quick" && (
-          <ResultCard song={songs[0]} onWrongSong={enterPowerIdle} />
+          <ResultCard
+            song={songs[0]}
+            onWrongSong={() => {
+              void enterPowerListening();
+            }}
+          />
         )}
 
         {appState === "result" && songs.length > 0 && searchMode === "power" && (
-          <PowerResultsList songs={songs} onWrongSong={enterPowerIdle} />
+          <PowerResultsList
+            songs={songs}
+            onWrongSong={() => {
+              void enterPowerListening();
+            }}
+          />
         )}
       </div>
     </div>
