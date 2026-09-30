@@ -179,7 +179,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         stopPromiseRef.current = null;
       };
 
-      recorder.start();
+      // Timeslice so an early "I'm done here" stop still has captured chunks.
+      recorder.start(250);
       setIsRecording(true);
     } catch (err) {
       cleanupStream();
@@ -203,6 +204,14 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     return new Promise<Blob | null>((resolve) => {
       stopPromiseRef.current = { resolve };
       try {
+        // Flush any buffered audio up to this exact moment before stopping.
+        if (recorder.state === "recording") {
+          try {
+            recorder.requestData();
+          } catch {
+            /* requestData unsupported — timeslice chunks still apply */
+          }
+        }
         recorder.stop();
       } catch {
         cleanupStream();

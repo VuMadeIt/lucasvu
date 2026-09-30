@@ -3,16 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { AnimatePresence, motion, useSpring, useTransform } from "framer-motion";
-import { ChevronLeft, History, Loader2, Mic } from "lucide-react";
+import { ChevronLeft, History, Loader2, Mic, SearchX } from "lucide-react";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { analyzeAudio, type SongResult } from "@/lib/analyzeAudio";
 import { useMaterialWebReady } from "@/lib/materialWeb";
 
 type SearchMode = "quick" | "power";
-type AppState = "idle" | "listening" | "filters" | "analyzing" | "result";
+type AppState = "idle" | "listening" | "analyzing" | "result" | "hard-fail";
 
 const GOOGLE_COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"] as const;
-const STAGE_1_TIMEOUT_MS = 8000;
+const STAGE_1_TIMEOUT_MS = 20_000;
 
 const GENRE_OPTIONS = [
   { value: "any", label: "Any genre" },
@@ -51,11 +51,12 @@ type ListeningPrompt =
   | { key: "listening" | "keep-going" | "almost"; kind: "line"; text: string };
 
 function getListeningPrompt(elapsedMs: number): ListeningPrompt {
-  if (elapsedMs < 2000) return { key: "hero", kind: "stacked" };
-  if (elapsedMs < 4000) {
+  // 0–4s Play/Sing/Hum · 4–8s Listening · 8–14s Keep going · 14–20s Almost there
+  if (elapsedMs < 4000) return { key: "hero", kind: "stacked" };
+  if (elapsedMs < 8000) {
     return { key: "listening", kind: "line", text: "Listening..." };
   }
-  if (elapsedMs < 6000) {
+  if (elapsedMs < 14000) {
     return { key: "keep-going", kind: "line", text: "Keep going..." };
   }
   return { key: "almost", kind: "line", text: "Almost there..." };
@@ -406,6 +407,83 @@ function PowerSearchFilters({
   );
 }
 
+function ResultCard({
+  song,
+  onWrongSong,
+}: {
+  song: SongResult;
+  onWrongSong: () => void;
+}) {
+  const query = encodeURIComponent(`${song.title} ${song.artist}`);
+  const youtubeUrl = `https://www.youtube.com/results?search_query=${query}`;
+  const spotifyUrl = `https://open.spotify.com/search/${query}`;
+
+  return (
+    <div className="flex w-full max-w-sm flex-col items-center">
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="flex w-full flex-col items-center"
+      >
+        <div className="w-full overflow-hidden rounded-3xl bg-[#f1f3f4] shadow-sm">
+          {song.albumArt ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={song.albumArt}
+              alt={`${song.title} album art`}
+              className="aspect-square w-full object-cover"
+            />
+          ) : (
+            <div className="flex aspect-square w-full items-center justify-center bg-gradient-to-br from-[#e8eaed] to-[#d2d5d9] text-sm text-black/40">
+              No cover art
+            </div>
+          )}
+        </div>
+
+        <h2 className="mt-5 w-full text-center text-3xl font-bold leading-tight tracking-tight text-[#1f1f1f]">
+          {song.title}
+        </h2>
+        <p className="mt-2 text-center text-lg text-black/65">{song.artist}</p>
+        {(song.album || song.year) && (
+          <p className="mt-1 text-center text-sm text-black/40">
+            {[song.album, song.year].filter(Boolean).join(" · ")}
+          </p>
+        )}
+
+        <div className="mt-6 flex items-center gap-5">
+          <a
+            href={youtubeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open on YouTube"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f1f3f4] transition-colors hover:bg-[#e8eaed]"
+          >
+            <YouTubeIcon className="h-7 w-7" />
+          </a>
+          <a
+            href={spotifyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open on Spotify"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f1f3f4] transition-colors hover:bg-[#e8eaed]"
+          >
+            <SpotifyIcon className="h-7 w-7" />
+          </a>
+        </div>
+      </motion.div>
+
+      <button
+        type="button"
+        onClick={onWrongSong}
+        className="mt-5 text-sm font-medium text-black/45 underline-offset-4 transition-colors hover:text-black/70 hover:underline"
+      >
+        Not the right song?
+      </button>
+    </div>
+  );
+}
+
 function PowerResultsList({
   songs,
   onWrongSong,
@@ -534,6 +612,7 @@ function PowerResultsList({
 export default function Home() {
   const [searchMode, setSearchMode] = useState<SearchMode>("quick");
   const [appState, setAppState] = useState<AppState>("idle");
+  const [attempts, setAttempts] = useState(0);
   const [listeningElapsedMs, setListeningElapsedMs] = useState(0);
   const [songs, setSongs] = useState<SongResult[]>([]);
   const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0].value);
@@ -549,9 +628,11 @@ export default function Home() {
   } = useAudioRecorder();
 
   const analyzingRef = useRef(false);
+  const attemptsRef = useRef(0);
   const listeningStartedAtRef = useRef<number | null>(null);
   const searchModeRef = useRef(searchMode);
   const filtersRef = useRef({ genre, lyrics, era, songSection });
+  const listenTimeoutRef = useRef<number | null>(null);
   const [listenSession, setListenSession] = useState(0);
 
   useEffect(() => {
@@ -561,6 +642,13 @@ export default function Home() {
   useEffect(() => {
     searchModeRef.current = searchMode;
   }, [searchMode]);
+
+  const clearListenTimeout = useCallback(() => {
+    if (listenTimeoutRef.current !== null) {
+      window.clearTimeout(listenTimeoutRef.current);
+      listenTimeoutRef.current = null;
+    }
+  }, []);
 
   const startQuickListening = useCallback(() => {
     analyzingRef.current = false;
@@ -574,13 +662,14 @@ export default function Home() {
 
   const enterPowerFilters = useCallback(async () => {
     analyzingRef.current = false;
+    clearListenTimeout();
     await stopRecording();
     setSongs([]);
     setListeningElapsedMs(0);
     listeningStartedAtRef.current = null;
     setSearchMode("power");
-    setAppState("filters");
-  }, [stopRecording]);
+    setAppState("idle");
+  }, [clearListenTimeout, stopRecording]);
 
   const tryAgainFromFilters = useCallback(() => {
     analyzingRef.current = false;
@@ -594,21 +683,57 @@ export default function Home() {
 
   const resetSession = useCallback(async () => {
     analyzingRef.current = false;
+    clearListenTimeout();
     listeningStartedAtRef.current = null;
     await stopRecording();
     setListeningElapsedMs(0);
     setSongs([]);
+    attemptsRef.current = 0;
+    setAttempts(0);
     setGenre(GENRE_OPTIONS[0].value);
     setLyrics("");
     setEra(ERA_OPTIONS[0].value);
     setSongSection("any");
     setSearchMode("quick");
     setAppState("idle");
-  }, [stopRecording]);
+  }, [clearListenTimeout, stopRecording]);
+
+  const goBackFromHardFail = useCallback(() => {
+    analyzingRef.current = false;
+    clearListenTimeout();
+    listeningStartedAtRef.current = null;
+    setSongs([]);
+    setListeningElapsedMs(0);
+    attemptsRef.current = 0;
+    setAttempts(0);
+    setGenre(GENRE_OPTIONS[0].value);
+    setLyrics("");
+    setEra(ERA_OPTIONS[0].value);
+    setSongSection("any");
+    setSearchMode("quick");
+    setAppState("idle");
+  }, [clearListenTimeout]);
+
+  const handleNoMatch = useCallback(() => {
+    const nextAttempts = attemptsRef.current + 1;
+    attemptsRef.current = nextAttempts;
+    setAttempts(nextAttempts);
+    setSongs([]);
+    analyzingRef.current = false;
+
+    if (nextAttempts >= 2) {
+      setAppState("hard-fail");
+      return;
+    }
+
+    setSearchMode("power");
+    setAppState("idle");
+  }, []);
 
   const runAnalysis = useCallback(async () => {
     if (analyzingRef.current) return;
     analyzingRef.current = true;
+    clearListenTimeout();
 
     const modeAtStop = searchModeRef.current;
     const filters = filtersRef.current;
@@ -624,38 +749,22 @@ export default function Home() {
       songSection: filters.songSection,
     });
 
-    // Stage 1 success → Google Search redirect (never touch power / filters)
-    if (
-      modeAtStop === "quick" &&
-      result.success &&
-      result.ok &&
-      result.songs.length > 0
-    ) {
-      const song = result.songs[0];
-      const query = encodeURIComponent(`${song.artist} ${song.title}`);
-      window.location.href = `https://www.google.com/search?q=${query}`;
-      return;
-    }
-
-    // Power Search success → compact ranked list
-    if (
-      modeAtStop === "power" &&
-      result.success &&
-      result.ok &&
-      result.songs.length > 0
-    ) {
+    // Confident match → in-app Results (no Google redirect)
+    if (result.success && result.ok && result.songs.length > 0) {
       setSongs(result.songs);
       setAppState("result");
       analyzingRef.current = false;
       return;
     }
 
-    // Stage 1 miss / low confidence → Power Search filters only
-    setSongs([]);
-    analyzingRef.current = false;
-    setSearchMode("power");
-    setAppState("filters");
-  }, [stopRecording]);
+    // No match → filters (attempt 1) or hard-fail (attempt 2+)
+    handleNoMatch();
+  }, [clearListenTimeout, handleNoMatch, stopRecording]);
+
+  const handleDoneListening = useCallback(() => {
+    clearListenTimeout();
+    void runAnalysis();
+  }, [clearListenTimeout, runAnalysis]);
 
   // Start mic whenever we enter listening
   useEffect(() => {
@@ -694,22 +803,30 @@ export default function Home() {
     return () => window.clearInterval(id);
   }, [appState, listenSession]);
 
-  // Auto-stop after 8s while listening (quick or power retry) → analyze
+  // Auto-stop after 20s while listening → analyze with audio so far
   useEffect(() => {
     if (appState !== "listening") return;
 
-    const timer = window.setTimeout(() => {
+    clearListenTimeout();
+    listenTimeoutRef.current = window.setTimeout(() => {
+      listenTimeoutRef.current = null;
       void runAnalysis();
     }, STAGE_1_TIMEOUT_MS);
 
-    return () => window.clearTimeout(timer);
-  }, [appState, listenSession, runAnalysis]);
+    return () => {
+      clearListenTimeout();
+    };
+  }, [appState, listenSession, runAnalysis, clearListenTimeout]);
+
+  const showPowerFilters = appState === "idle" && searchMode === "power";
+  const showQuickIdle = appState === "idle" && searchMode === "quick";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-200 p-6">
       <div
         data-search-mode={searchMode}
         data-app-state={appState}
+        data-attempts={attempts}
         className="relative h-[874px] w-[402px] overflow-hidden rounded-[55px] border-[14px] border-black bg-white text-[#1f1f1f] shadow-2xl"
       >
         {/* Dynamic Island */}
@@ -744,7 +861,7 @@ export default function Home() {
 
         {/* Clears absolute header + Dynamic Island; content centers in remaining space */}
         <main className="relative z-10 flex h-full w-full flex-col items-center justify-center overflow-y-auto px-6 pt-28 pb-24 text-center">
-          {appState === "idle" && (
+          {showQuickIdle && (
             <div className="flex w-full flex-col items-center">
               <h1 className="text-6xl font-bold leading-none tracking-tight text-[#1f1f1f] sm:text-7xl">
                 <span className="block">Play</span>
@@ -765,18 +882,7 @@ export default function Home() {
             </div>
           )}
 
-          {appState === "listening" && (
-            <>
-              <ListeningHeadline elapsedMs={listeningElapsedMs} />
-              {micError && (
-                <p className="mt-6 max-w-[260px] text-center text-sm text-red-600">
-                  {micError}
-                </p>
-              )}
-            </>
-          )}
-
-          {appState === "filters" && (
+          {showPowerFilters && (
             <div className="flex w-full max-w-sm flex-col items-center">
               <h1 className="mb-6 text-center text-2xl font-medium text-[#1f1f1f]">
                 Humming was tricky? Let&apos;s narrow it down.
@@ -803,7 +909,51 @@ export default function Home() {
             </div>
           )}
 
+          {appState === "listening" && (
+            <>
+              <ListeningHeadline elapsedMs={listeningElapsedMs} />
+              {micError && (
+                <p className="mt-6 max-w-[260px] text-center text-sm text-red-600">
+                  {micError}
+                </p>
+              )}
+            </>
+          )}
+
           {appState === "analyzing" && <AnalyzingLoader />}
+
+          {appState === "hard-fail" && (
+            <div className="flex w-full max-w-sm flex-col items-center">
+              <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#f1f3f4]">
+                <SearchX
+                  className="h-12 w-12 text-black/35"
+                  strokeWidth={1.5}
+                  aria-hidden
+                />
+              </div>
+              <h1 className="mt-6 text-center text-2xl font-bold tracking-tight text-[#1f1f1f]">
+                Sorry, we couldn&apos;t find it.
+              </h1>
+              <button
+                type="button"
+                onClick={goBackFromHardFail}
+                className="mt-8 rounded-full bg-[#1a73e8] px-8 py-3 font-medium text-white shadow-none transition-all hover:bg-[#1557b0] active:scale-[0.98]"
+              >
+                Go back
+              </button>
+            </div>
+          )}
+
+          {appState === "result" &&
+            songs.length > 0 &&
+            searchMode === "quick" && (
+              <ResultCard
+                song={songs[0]}
+                onWrongSong={() => {
+                  void enterPowerFilters();
+                }}
+              />
+            )}
 
           {appState === "result" &&
             songs.length > 0 &&
@@ -817,9 +967,19 @@ export default function Home() {
             )}
         </main>
 
-        {/* Wave only while actively listening */}
         {appState === "listening" && (
-          <ReactiveBottomWave audioVolume={audioVolume} />
+          <>
+            <div className="pointer-events-none absolute inset-x-0 bottom-[118px] z-20 flex justify-center px-6">
+              <button
+                type="button"
+                onClick={handleDoneListening}
+                className="pointer-events-auto rounded-full border border-black/15 bg-black/55 px-5 py-2.5 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-black/65"
+              >
+                I&apos;m done here
+              </button>
+            </div>
+            <ReactiveBottomWave audioVolume={audioVolume} />
+          </>
         )}
       </div>
     </div>
