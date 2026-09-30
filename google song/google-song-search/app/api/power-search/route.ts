@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { enrichWithItunes } from "@/lib/enrichWithItunes";
-import { guessSongsWithLlm } from "@/lib/llmSongGuess";
+import { fetchMultiSourceCandidates } from "@/lib/musicSources";
+import { rankCandidates } from "@/lib/scoreCandidates";
 import type {
   PowerSearchClues,
   PowerSearchResponse,
@@ -36,30 +36,44 @@ export async function POST(request: Request) {
 
     const clues = parseClues(json);
     if (!clues) {
-      return failure("INVALID_PAYLOAD", "Expected lyrics, songSection, genre, and era.");
+      return failure(
+        "INVALID_PAYLOAD",
+        "Expected lyrics, songSection, genre, and era.",
+      );
     }
 
-    const hasAnyClue = [clues.lyrics, clues.songSection, clues.genre, clues.era].some(
-      (value) => value.trim() && !/^any(\s|$)/i.test(value.trim()),
-    );
+    const hasAnyClue = [
+      clues.lyrics,
+      clues.songSection,
+      clues.genre,
+      clues.era,
+    ].some((value) => value.trim() && !/^any(\s|$)/i.test(value.trim()));
 
-    if (!hasAnyClue && !clues.lyrics.trim()) {
+    if (!hasAnyClue) {
       return failure(
         "EMPTY_CLUES",
         "Add at least one clue (lyrics, section, genre, or era) before searching.",
       );
     }
 
-    const guesses = await guessSongsWithLlm(clues);
-    if (guesses.length === 0) {
+    const candidates = await fetchMultiSourceCandidates(clues);
+    if (candidates.length === 0) {
       return failure(
         "NO_MATCH",
-        "The model could not identify likely songs from those clues.",
+        "No songs found across Spotify/iTunes for those clues.",
         404,
       );
     }
 
-    const results = await enrichWithItunes(guesses);
+    const results = rankCandidates(candidates, clues, 5);
+    if (results.length === 0) {
+      return failure(
+        "NO_MATCH",
+        "Candidates were found but none scored highly enough.",
+        404,
+      );
+    }
+
     const body: PowerSearchResponse = { ok: true, results };
     return NextResponse.json(body);
   } catch (error) {
