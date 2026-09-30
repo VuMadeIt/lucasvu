@@ -38,6 +38,14 @@ const ERA_OPTIONS = [
   { value: "older", label: "Older" },
 ] as const;
 
+const SONG_SECTION_OPTIONS = [
+  { value: "any", label: "Not sure" },
+  { value: "chorus", label: "Chorus / Hook" },
+  { value: "verse", label: "Verse" },
+  { value: "bridge", label: "Bridge" },
+  { value: "intro", label: "Intro / Outro" },
+] as const;
+
 type ListeningPrompt =
   | { key: "hero"; kind: "stacked" }
   | { key: "listening" | "keep-going" | "almost"; kind: "line"; text: string };
@@ -230,19 +238,24 @@ function PowerSearchFilters({
   genre,
   lyrics,
   era,
+  songSection,
   onGenreChange,
   onLyricsChange,
   onEraChange,
+  onSongSectionChange,
 }: {
   genre: string;
   lyrics: string;
   era: string;
+  songSection: string;
   onGenreChange: (value: string) => void;
   onLyricsChange: (value: string) => void;
   onEraChange: (value: string) => void;
+  onSongSectionChange: (value: string) => void;
 }) {
   const materialReady = useMaterialWebReady();
   const lyricsRef = useRef<HTMLElement | null>(null);
+  const songSectionRef = useRef<HTMLElement | null>(null);
   const genreRef = useRef<HTMLElement | null>(null);
   const eraRef = useRef<HTMLElement | null>(null);
 
@@ -258,6 +271,19 @@ function PowerSearchFilters({
     field.addEventListener("input", onInput);
     return () => field.removeEventListener("input", onInput);
   }, [materialReady, onLyricsChange]);
+
+  useEffect(() => {
+    const select = songSectionRef.current;
+    if (!select) return;
+
+    const onChange = () => {
+      const value = (select as HTMLSelectElement & { value: string }).value ?? "";
+      onSongSectionChange(value);
+    };
+
+    select.addEventListener("change", onChange);
+    return () => select.removeEventListener("change", onChange);
+  }, [materialReady, onSongSectionChange]);
 
   useEffect(() => {
     const select = genreRef.current;
@@ -291,9 +317,15 @@ function PowerSearchFilters({
         <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
         <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
         <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
+        <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
       </div>
     );
   }
+
+  const selectStyle = {
+    "--md-filled-select-text-field-container-color": "#f1f3f4",
+    "--md-filled-select-text-field-focus-active-indicator-color": "#1a73e8",
+  } as CSSProperties;
 
   return (
     <motion.div
@@ -318,17 +350,29 @@ function PowerSearchFilters({
       />
 
       <md-filled-select
+        ref={songSectionRef as never}
+        label="Part of the song"
+        value={songSection}
+        className="mt-4 w-full"
+        style={selectStyle}
+      >
+        {SONG_SECTION_OPTIONS.map((option) => (
+          <md-select-option
+            key={option.value}
+            value={option.value}
+            {...(option.value === songSection ? { selected: true } : {})}
+          >
+            <div slot="headline">{option.label}</div>
+          </md-select-option>
+        ))}
+      </md-filled-select>
+
+      <md-filled-select
         ref={genreRef as never}
         label="Genre"
         value={genre}
         className="w-full"
-        style={
-          {
-            "--md-filled-select-text-field-container-color": "#f1f3f4",
-            "--md-filled-select-text-field-focus-active-indicator-color":
-              "#1a73e8",
-          } as CSSProperties
-        }
+        style={selectStyle}
       >
         {GENRE_OPTIONS.map((option) => (
           <md-select-option
@@ -346,13 +390,7 @@ function PowerSearchFilters({
         label="Era"
         value={era}
         className="w-full"
-        style={
-          {
-            "--md-filled-select-text-field-container-color": "#f1f3f4",
-            "--md-filled-select-text-field-focus-active-indicator-color":
-              "#1a73e8",
-          } as CSSProperties
-        }
+        style={selectStyle}
       >
         {ERA_OPTIONS.map((option) => (
           <md-select-option
@@ -579,6 +617,7 @@ export default function Home() {
   const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0].value);
   const [lyrics, setLyrics] = useState("");
   const [era, setEra] = useState<string>(ERA_OPTIONS[0].value);
+  const [songSection, setSongSection] = useState("any");
 
   const {
     startRecording,
@@ -590,12 +629,12 @@ export default function Home() {
   const analyzingRef = useRef(false);
   const listeningStartedAtRef = useRef<number | null>(null);
   const searchModeRef = useRef(searchMode);
-  const filtersRef = useRef({ genre, lyrics, era });
+  const filtersRef = useRef({ genre, lyrics, era, songSection });
   const [listenSession, setListenSession] = useState(0);
 
   useEffect(() => {
-    filtersRef.current = { genre, lyrics, era };
-  }, [genre, lyrics, era]);
+    filtersRef.current = { genre, lyrics, era, songSection };
+  }, [genre, lyrics, era, songSection]);
 
   useEffect(() => {
     searchModeRef.current = searchMode;
@@ -630,6 +669,7 @@ export default function Home() {
     setGenre(GENRE_OPTIONS[0].value);
     setLyrics("");
     setEra(ERA_OPTIONS[0].value);
+    setSongSection("any");
     setSearchMode("quick");
     listeningStartedAtRef.current = Date.now();
     setListenSession((value) => value + 1);
@@ -651,6 +691,7 @@ export default function Home() {
       lyrics: filters.lyrics,
       genre: filters.genre,
       era: filters.era,
+      songSection: filters.songSection,
     });
 
     if (result.success && result.ok && result.songs.length > 0) {
@@ -782,9 +823,11 @@ export default function Home() {
                 genre={genre}
                 lyrics={lyrics}
                 era={era}
+                songSection={songSection}
                 onGenreChange={setGenre}
                 onLyricsChange={setLyrics}
                 onEraChange={setEra}
+                onSongSectionChange={setSongSection}
               />
 
               <button

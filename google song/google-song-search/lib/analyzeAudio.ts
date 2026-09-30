@@ -21,6 +21,7 @@ type RecognizeFilters = {
   lyrics?: string;
   genre?: string;
   era?: string;
+  songSection?: string;
 };
 
 type AnalyzeOptions = RecognizeFilters & {
@@ -66,6 +67,7 @@ function withMatchPercents(songs: SongResult[]): SongResult[] {
 function getPowerMockSongs(filters: RecognizeFilters): SongResult[] {
   const genreHint = filters.genre?.trim();
   const lyricHint = filters.lyrics?.trim();
+  const sectionHint = filters.songSection?.trim();
 
   const tailored = POWER_MOCK_SONGS.map((song, index) => {
     if (index === 0 && lyricHint) {
@@ -74,10 +76,16 @@ function getPowerMockSongs(filters: RecognizeFilters): SongResult[] {
         album: song.album ?? "Matched from your clues",
       };
     }
-    if (index === 1 && genreHint && !/^any\s/i.test(genreHint)) {
+    if (index === 1 && genreHint && !/^any(\s|$)/i.test(genreHint)) {
       return {
         ...song,
         album: song.album ?? `${genreHint} pick`,
+      };
+    }
+    if (index === 2 && sectionHint && !/^any(\s|$)/i.test(sectionHint)) {
+      return {
+        ...song,
+        album: song.album ?? `${sectionHint} section match`,
       };
     }
     return song;
@@ -117,6 +125,7 @@ export function buildRecognizeFormData(
   if (filters.lyrics) formData.append("lyrics", filters.lyrics);
   if (filters.genre) formData.append("genre", filters.genre);
   if (filters.era) formData.append("era", filters.era);
+  if (filters.songSection) formData.append("songSection", filters.songSection);
 
   return formData;
 }

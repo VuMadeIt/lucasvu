@@ -14,6 +14,13 @@ type ITunesSearchResponse = {
   results?: ITunesTrack[];
 };
 
+const SONG_SECTION_QUERY: Record<string, string> = {
+  chorus: "chorus hook",
+  verse: "verse",
+  bridge: "bridge",
+  intro: "intro outro",
+};
+
 function mapITunesTrack(track: ITunesTrack): SongResult | null {
   if (!track.trackName || !track.artistName) return null;
 
@@ -33,6 +40,11 @@ function mapITunesTrack(track: ITunesTrack): SongResult | null {
   };
 }
 
+function isUsefulFilter(value?: string) {
+  const trimmed = value?.trim() ?? "";
+  return Boolean(trimmed) && !/^any(\s|$)/i.test(trimmed);
+}
+
 /**
  * Power Search via the public iTunes Search API (no API key required).
  */
@@ -40,11 +52,18 @@ export async function searchByText(
   lyrics: string,
   genre: string,
   era?: string,
+  songSection?: string,
 ): Promise<SongResult[]> {
-  const parts = [lyrics.trim(), genre.trim(), era?.trim()].filter((part) => {
-    if (!part) return false;
-    return !/^any(\s|$)/i.test(part);
-  });
+  const sectionQuery = isUsefulFilter(songSection)
+    ? SONG_SECTION_QUERY[songSection!.trim()] ?? songSection!.trim()
+    : "";
+
+  const parts = [
+    lyrics.trim(),
+    genre.trim(),
+    era?.trim(),
+    sectionQuery,
+  ].filter((part) => isUsefulFilter(part));
 
   const term = parts.join(" ").trim();
   if (!term) return [];

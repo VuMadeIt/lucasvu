@@ -25,8 +25,13 @@ function failure(
   return NextResponse.json(body, { status });
 }
 
-function hasUsefulFilters(lyrics: string, genre: string, era: string) {
-  const meaningful = [lyrics, genre, era].filter((value) => {
+function hasUsefulFilters(
+  lyrics: string,
+  genre: string,
+  era: string,
+  songSection: string,
+) {
+  const meaningful = [lyrics, genre, era, songSection].filter((value) => {
     const trimmed = value.trim();
     return trimmed && !/^any(\s|$)/i.test(trimmed);
   });
@@ -40,9 +45,15 @@ export async function POST(request: Request) {
     const lyrics = String(formData.get("lyrics") ?? "");
     const genre = String(formData.get("genre") ?? "");
     const era = String(formData.get("era") ?? "");
+    const songSection = String(formData.get("songSection") ?? "");
 
     const hasAudio = audio instanceof Blob && audio.size > 0;
-    const canFallbackToText = hasUsefulFilters(lyrics, genre, era);
+    const canFallbackToText = hasUsefulFilters(
+      lyrics,
+      genre,
+      era,
+      songSection,
+    );
 
     // Prefer Shazam when we have audio; reject low-confidence / wrong matches.
     if (hasAudio) {
@@ -75,7 +86,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      const songs = await searchByText(lyrics, genre, era);
+      const songs = await searchByText(lyrics, genre, era, songSection);
       if (songs.length === 0) {
         return failure(
           "NO_MATCH",
