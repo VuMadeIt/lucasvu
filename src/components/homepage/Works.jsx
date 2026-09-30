@@ -25,6 +25,18 @@ const projectsData = [
     slug: null,
     isExternal: true,
     link: "https://passionnailstoronto.vercel.app/"
+  },
+  {
+    id: 3,
+    name: "Search a Song",
+    type: "Product Engineering • Audio Recognition • Next.js",
+    year: "2026",
+    tools: "Next.js • AudD • Shazam API • Material Web • Framer Motion",
+    img: "/google-song-search.jpg",
+    alt: "Google Search a song style Next.js app mockup",
+    slug: null,
+    isExternal: true,
+    link: "https://github.com/VuMadeIt/lucasvu/tree/main/google%20song/google-song-search"
   }
 ];
 
@@ -38,15 +50,11 @@ export default function Works({ forwardedRef }) {
       <div className="max-w-7xl mx-auto px-8">
         <Heading title="Projects" />
         <div className="mt-10 grid grid-cols-1 gap-16 gap-y-16 md:grid-cols-12">
-          {/* Kindro Project - Full width */}
-          <div className="col-span-1 md:col-span-12">
-            <Projects {...projectsData[0]} />
-          </div>
-                  
-          {/* Passion Nails Project - Full width */}
-          <div className="col-span-1 md:col-span-12">
-            <Projects {...projectsData[1]} />
-          </div>
+          {projectsData.map((project) => (
+            <div key={project.id} className="col-span-1 md:col-span-12">
+              <Projects {...project} />
+            </div>
+          ))}
         </div>
         
         {/* Add some extra spacing to ensure the section is tall enough */}
