@@ -756,11 +756,6 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [appState, listenSession, runAnalysis]);
 
-  const mainJustify =
-    appState === "result" || appState === "filters"
-      ? "justify-start"
-      : "justify-center";
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-200 p-6">
       <div
@@ -798,10 +793,8 @@ export default function Home() {
           </button>
         </header>
 
-        {/* Global main content area — clears header, centers content */}
-        <main
-          className={`relative z-10 flex h-full w-full flex-col items-center overflow-y-auto px-6 pt-20 pb-24 text-center ${mainJustify}`}
-        >
+        {/* Clears absolute header + Dynamic Island; content centers in remaining space */}
+        <main className="relative z-10 flex h-full w-full flex-col items-center justify-center overflow-y-auto px-6 pt-28 pb-24 text-center">
           {appState === "listening" && (
             <>
               <ListeningHeadline elapsedMs={listeningElapsedMs} />
@@ -814,7 +807,7 @@ export default function Home() {
           )}
 
           {appState === "filters" && (
-            <div className="flex w-full max-w-sm flex-col items-center pt-4">
+            <div className="flex w-full max-w-sm flex-col items-center">
               <h1 className="mb-6 text-center text-2xl font-medium text-[#1f1f1f]">
                 Humming was tricky? Let&apos;s narrow it down.
               </h1>
