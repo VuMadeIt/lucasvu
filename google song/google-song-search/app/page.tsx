@@ -337,17 +337,30 @@ function PowerSearchFilters({
     "--md-filled-text-field-focus-active-indicator-color": "transparent",
     "--md-filled-select-text-field-container-color": "#f1f3f4",
     "--md-filled-text-field-container-color": "#f1f3f4",
-    "--md-menu-container-max-height": "140px",
   } as CSSProperties;
 
-  const selectStyle = {
+  const selectBaseStyle = {
     ...materialFieldTheme,
-    "--md-menu-container-max-height": "140px",
     "--md-filled-select-active-indicator-height": "0px",
     "--md-filled-select-focus-active-indicator-height": "0px",
     "--md-filled-select-active-indicator-color": "transparent",
     "--md-filled-select-focus-active-indicator-color": "transparent",
     "--md-sys-color-primary": "#1a73e8",
+  } as CSSProperties;
+
+  const songSectionSelectStyle = {
+    ...selectBaseStyle,
+    "--md-menu-container-max-height": "480px",
+  } as CSSProperties;
+
+  const genreSelectStyle = {
+    ...selectBaseStyle,
+    "--md-menu-container-max-height": "250px",
+  } as CSSProperties;
+
+  const eraSelectStyle = {
+    ...selectBaseStyle,
+    "--md-menu-container-max-height": "170px",
   } as CSSProperties;
 
   return (
@@ -371,11 +384,11 @@ function PowerSearchFilters({
         ref={songSectionRef as never}
         label="Part of the song"
         value={songSection}
-        menu-positioning="fixed"
+        menu-positioning="absolute"
         anchor-corner="END_START"
         menu-corner="START_START"
-        className="mt-4 w-full [&_::part(menu)]:!max-h-[140px] [&_::part(menu)]:overflow-y-auto"
-        style={selectStyle}
+        className="mt-4 w-full"
+        style={songSectionSelectStyle}
       >
         {SONG_SECTION_OPTIONS.map((option) => (
           <md-select-option
@@ -392,11 +405,11 @@ function PowerSearchFilters({
         ref={genreRef as never}
         label="Genre"
         value={genre}
-        menu-positioning="fixed"
+        menu-positioning="absolute"
         anchor-corner="END_START"
         menu-corner="START_START"
-        className="w-full [&_::part(menu)]:!max-h-[140px] [&_::part(menu)]:overflow-y-auto"
-        style={selectStyle}
+        className="w-full"
+        style={genreSelectStyle}
       >
         {GENRE_OPTIONS.map((option) => (
           <md-select-option
@@ -413,11 +426,11 @@ function PowerSearchFilters({
         ref={eraRef as never}
         label="Era"
         value={era}
-        menu-positioning="fixed"
+        menu-positioning="absolute"
         anchor-corner="END_START"
         menu-corner="START_START"
-        className="w-full [&_::part(menu)]:!max-h-[140px] [&_::part(menu)]:overflow-y-auto"
-        style={selectStyle}
+        className="w-full"
+        style={eraSelectStyle}
       >
         {ERA_OPTIONS.map((option) => (
           <md-select-option
@@ -901,7 +914,7 @@ export default function Home() {
         </header>
 
         {/* Clears absolute header + Dynamic Island; content centers in remaining space */}
-        <main className="relative z-10 flex h-full w-full flex-col items-center justify-center overflow-y-auto px-6 pt-28 pb-24 text-center">
+        <main className="relative z-10 flex h-full w-full flex-col items-center justify-center overflow-hidden px-6 pt-28 pb-24 text-center">
           {showQuickIdle && (
             <div className="flex w-full flex-col items-center">
               <h1 className="text-6xl font-bold leading-none tracking-tight text-[#1f1f1f] sm:text-7xl">

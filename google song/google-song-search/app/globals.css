@@ -64,19 +64,18 @@ md-filled-select {
   --md-filled-select-text-field-container-shape: 16px;
   --md-filled-select-text-field-input-text-font: var(--font-plus-jakarta);
   --md-filled-select-text-field-label-text-font: var(--font-plus-jakarta);
-  --md-menu-container-max-height: 140px;
+  --md-menu-container-max-height: 250px;
 }
 
 md-filled-select::part(menu) {
   --md-menu-container-color: #ffffff;
   --md-menu-container-shape: 12px;
-  --md-menu-container-max-height: 140px;
-  max-height: 140px;
+  max-height: var(--md-menu-container-max-height, 250px);
   overflow-y: auto;
 }
 
 md-menu {
-  --md-menu-container-max-height: 140px;
+  --md-menu-container-max-height: inherit;
 }
 
 .material-symbols-outlined {
