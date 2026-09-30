@@ -1,19 +1,39 @@
 import { NextResponse } from "next/server";
+import { recognizeWithAcrCloud } from "@/lib/acrcloud";
+import { recognizeWithAudd } from "@/lib/audd";
 import {
+  EXACT_MATCH_CONFIDENCE,
   LowConfidenceError,
   recognizeWithShazam,
 } from "@/lib/shazam";
-import { searchByText } from "@/lib/searchByText";
-import type { RecognizeFailure, RecognizeResponse } from "@/lib/types";
+import type {
+  RecognizeFailure,
+  RecognizeResponse,
+  SongResult,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const LOW_CONFIDENCE_MESSAGE = "Could not confidently identify audio";
+const NO_MATCH_MESSAGE =
+  "Audio could not be identified. Switching to Power Search.";
+
+function noMatchPayload(): RecognizeFailure {
+  return {
+    success: false,
+    ok: false,
+    status: "NO_MATCH",
+    triggerPowerSearch: true,
+    error: "NO_MATCH",
+    message: NO_MATCH_MESSAGE,
+    reason: NO_MATCH_MESSAGE,
+  };
+}
 
 function failure(
   error: RecognizeFailure["error"],
   message: string,
   status = 200,
+  extra: Partial<RecognizeFailure> = {},
 ) {
   const body: RecognizeFailure = {
     success: false,
@@ -21,96 +41,122 @@ function failure(
     error,
     message,
     reason: message,
+    ...extra,
   };
   return NextResponse.json(body, { status });
 }
 
-function hasUsefulFilters(
-  lyrics: string,
-  genre: string,
-  era: string,
-  songSection: string,
-) {
-  const meaningful = [lyrics, genre, era, songSection].filter((value) => {
-    const trimmed = value.trim();
-    return trimmed && !/^any(\s|$)/i.test(trimmed);
-  });
-  return meaningful.length > 0;
+type ExactHit = {
+  song: SongResult;
+  confidence: number;
+  source: "shazam" | "audd";
+};
+
+/**
+ * Pass 1 — exact fingerprint match via Shazam, then AudD if configured.
+ * Only returns a hit when confidence clears the 75% gate.
+ */
+async function pass1ExactMatch(audio: Blob): Promise<ExactHit | null> {
+  try {
+    const result = await recognizeWithShazam(audio);
+    if (result.confidence > EXACT_MATCH_CONFIDENCE - 1e-9) {
+      return {
+        song: result.song,
+        confidence: result.confidence,
+        source: "shazam",
+      };
+    }
+  } catch (error) {
+    const isLow = error instanceof LowConfidenceError;
+    console.warn(
+      `[recognize] Shazam ${isLow ? "low-confidence" : "miss/fail"}`,
+      error,
+    );
+  }
+
+  try {
+    const audd = await recognizeWithAudd(audio);
+    if (audd && audd.confidence > EXACT_MATCH_CONFIDENCE - 1e-9) {
+      return {
+        song: audd.song,
+        confidence: audd.confidence,
+        source: "audd",
+      };
+    }
+  } catch (error) {
+    console.warn("[recognize] AudD miss/fail", error);
+  }
+
+  return null;
+}
+
+/**
+ * Pass 2 — humming / pitch-contour via ACRCloud (optional).
+ */
+async function pass2Humming(audio: Blob): Promise<SongResult[]> {
+  try {
+    return await recognizeWithAcrCloud(audio);
+  } catch (error) {
+    console.warn("[recognize] ACRCloud miss/fail", error);
+    return [];
+  }
 }
 
 export async function POST(request: Request) {
   try {
-    const formData = await request.formData();
-    const audio = formData.get("audio");
-    const lyrics = String(formData.get("lyrics") ?? "");
-    const genre = String(formData.get("genre") ?? "");
-    const era = String(formData.get("era") ?? "");
-    const songSection = String(formData.get("songSection") ?? "");
-
-    const hasAudio = audio instanceof Blob && audio.size > 0;
-    const canFallbackToText = hasUsefulFilters(
-      lyrics,
-      genre,
-      era,
-      songSection,
-    );
-
-    // Prefer Shazam when we have audio; reject low-confidence / wrong matches.
-    if (hasAudio) {
-      try {
-        const { song, confidence } = await recognizeWithShazam(audio);
-        const body: RecognizeResponse = {
-          success: true,
-          ok: true,
-          source: "shazam",
-          songs: [song],
-          confidence,
-        };
-        return NextResponse.json(body);
-      } catch (error) {
-        const isLowConfidence = error instanceof LowConfidenceError;
-        console.warn(
-          `[recognize] Shazam ${isLowConfidence ? "low-confidence" : "miss/fail"}`,
-          error,
-        );
-
-        // Without text clues, never invent a song — surface LOW_CONFIDENCE.
-        if (!canFallbackToText) {
-          return failure("LOW_CONFIDENCE", LOW_CONFIDENCE_MESSAGE);
-        }
-      }
-    }
-
-    if (!canFallbackToText) {
-      return failure("LOW_CONFIDENCE", LOW_CONFIDENCE_MESSAGE);
-    }
-
+    let formData: FormData;
     try {
-      const songs = await searchByText(lyrics, genre, era, songSection);
-      if (songs.length === 0) {
-        return failure(
-          "NO_MATCH",
-          "Couldn't identify that tune. Try again with more clues.",
-        );
-      }
+      formData = await request.formData();
+    } catch {
+      return failure(
+        "SERVER_ERROR",
+        "Request must be multipart form data with an audio field.",
+        400,
+      );
+    }
 
+    const audio = formData.get("audio");
+    const hasAudio = audio instanceof Blob && audio.size > 0;
+
+    if (!hasAudio) {
+      return NextResponse.json(noMatchPayload());
+    }
+
+    // Pass 1: Shazam / AudD exact audio matching
+    const exact = await pass1ExactMatch(audio);
+    if (exact) {
       const body: RecognizeResponse = {
         success: true,
         ok: true,
-        source: "itunes",
-        songs,
+        status: "EXACT_MATCH",
+        searchMode: "quick",
+        source: exact.source,
+        song: exact.song,
+        songs: [exact.song],
+        confidence: exact.confidence,
       };
       return NextResponse.json(body);
-    } catch (error) {
-      console.error("[recognize] iTunes fallback failed", error);
-      return failure("SEARCH_FAILED", "Search failed. Please try again.", 502);
     }
+
+    // Pass 2: ACRCloud humming fallback
+    const candidates = await pass2Humming(audio);
+    if (candidates.length > 0) {
+      const body: RecognizeResponse = {
+        success: true,
+        ok: true,
+        status: "CANDIDATES",
+        searchMode: "quick",
+        source: "acrcloud",
+        songs: candidates,
+      };
+      return NextResponse.json(body);
+    }
+
+    // Both passes failed → hand off to Power Search on the client
+    return NextResponse.json(noMatchPayload());
   } catch (error) {
     console.error("[recognize] Unexpected error", error);
-    return failure(
-      "SERVER_ERROR",
-      "Something went wrong while recognizing the audio.",
-      500,
-    );
+    // Never surface an uncaught 500 — return structured Power Search handoff.
+    return NextResponse.json(noMatchPayload());
   }
 }

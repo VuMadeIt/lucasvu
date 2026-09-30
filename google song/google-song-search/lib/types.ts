@@ -7,10 +7,16 @@ export type SongResult = {
   matchPercent?: number;
 };
 
+export type RecognizeStatus = "EXACT_MATCH" | "CANDIDATES" | "NO_MATCH";
+
 export type RecognizeSuccess = {
   success: true;
   ok: true;
-  source: "shazam" | "itunes" | "mock";
+  status?: "EXACT_MATCH" | "CANDIDATES";
+  searchMode?: "quick" | "power";
+  source: "shazam" | "audd" | "acrcloud" | "itunes" | "mock";
+  /** Present on EXACT_MATCH responses */
+  song?: SongResult;
   songs: SongResult[];
   confidence?: number;
 };
@@ -18,6 +24,8 @@ export type RecognizeSuccess = {
 export type RecognizeFailure = {
   success: false;
   ok: false;
+  status?: "NO_MATCH";
+  triggerPowerSearch?: boolean;
   error: "LOW_CONFIDENCE" | "NO_MATCH" | "SEARCH_FAILED" | "SERVER_ERROR";
   message: string;
   /** @deprecated Prefer `message` — kept for older clients */

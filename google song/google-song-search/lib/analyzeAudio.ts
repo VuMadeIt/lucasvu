@@ -7,14 +7,18 @@ export type AnalyzeAudioResult =
       ok: true;
       success: true;
       songs: SongResult[];
-      source: "shazam" | "itunes" | "mock";
+      source: "shazam" | "audd" | "acrcloud" | "itunes" | "mock";
       confidence?: number;
+      status?: "EXACT_MATCH" | "CANDIDATES";
+      searchMode?: "quick" | "power";
     }
   | {
       ok: false;
       success: false;
       error?: string;
       reason: string;
+      status?: "NO_MATCH";
+      triggerPowerSearch?: boolean;
     };
 
 type RecognizeFilters = {
@@ -194,14 +198,71 @@ export async function analyzeAudio(
     body: formData,
   });
 
-  let data: RecognizeResponse;
+  let data: RecognizeResponse & {
+    status?: string;
+    triggerPowerSearch?: boolean;
+    song?: SongResult;
+    message?: string;
+  };
   try {
-    data = (await response.json()) as RecognizeResponse;
+    data = (await response.json()) as typeof data;
   } catch {
     return {
       ok: false,
       success: false,
-      reason: "Couldn't read the recognition response.",
+      status: "NO_MATCH",
+      triggerPowerSearch: true,
+      reason: "Audio could not be identified. Switching to Power Search.",
+    };
+  }
+
+  // Two-pass backend: exact match
+  if (data.status === "EXACT_MATCH") {
+    const song =
+      ("song" in data && data.song) ||
+      (data.success && "songs" in data && data.songs[0]);
+    if (song) {
+      return {
+        ok: true,
+        success: true,
+        songs: [song],
+        source: data.success ? data.source : "shazam",
+        confidence: data.success ? data.confidence : undefined,
+        status: "EXACT_MATCH",
+        searchMode: "quick",
+      };
+    }
+  }
+
+  // Two-pass backend: humming candidates
+  if (
+    data.status === "CANDIDATES" &&
+    data.success &&
+    "songs" in data &&
+    data.songs.length > 0
+  ) {
+    return {
+      ok: true,
+      success: true,
+      songs: data.songs,
+      source: data.source,
+      status: "CANDIDATES",
+      searchMode: "quick",
+    };
+  }
+
+  // Explicit Power Search handoff
+  if (data.status === "NO_MATCH" || data.triggerPowerSearch) {
+    return {
+      ok: false,
+      success: false,
+      status: "NO_MATCH",
+      triggerPowerSearch: true,
+      error: "NO_MATCH",
+      reason:
+        data.message ||
+        ("reason" in data ? data.reason : undefined) ||
+        "Audio could not be identified. Switching to Power Search.",
     };
   }
 
@@ -215,6 +276,8 @@ export async function analyzeAudio(
         failure.message ||
         failure.reason ||
         "Could not confidently identify audio",
+      triggerPowerSearch: true,
+      status: "NO_MATCH",
     };
   }
 

@@ -1,6 +1,7 @@
 import type { SongResult } from "@/lib/types";
 
-const CONFIDENCE_THRESHOLD = 70;
+/** Pass 1 exact-match gate: only accept strong fingerprint hits. */
+export const EXACT_MATCH_CONFIDENCE = 75;
 
 type ShazamImageBag = {
   coverarthq?: string;
@@ -181,9 +182,12 @@ export async function recognizeWithShazam(
   }
 
   const confidence = extractConfidence(payload);
-  if (confidence === null || confidence < CONFIDENCE_THRESHOLD) {
+  if (confidence === null || confidence < EXACT_MATCH_CONFIDENCE) {
     throw new LowConfidenceError();
   }
 
-  return { song: mapped, confidence };
+  return {
+    song: { ...mapped, matchPercent: Math.round(confidence) },
+    confidence,
+  };
 }
