@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { recognizeWithAcrCloud } from "@/lib/acrcloud";
 import { recognizeWithAudd } from "@/lib/audd";
+import { fetchMultiSourceCandidates } from "@/lib/musicSources";
+import { rankCandidates } from "@/lib/scoreCandidates";
+import { searchByText } from "@/lib/searchByText";
 import {
   EXACT_MATCH_CONFIDENCE,
   LowConfidenceError,
   recognizeWithShazam,
 } from "@/lib/shazam";
+import type { PowerSearchClues } from "@/lib/powerSearchTypes";
 import type {
   RecognizeFailure,
   RecognizeResponse,
@@ -46,16 +50,74 @@ function failure(
   return NextResponse.json(body, { status });
 }
 
+function useful(value: string) {
+  const trimmed = value.trim();
+  return Boolean(trimmed) && !/^any(\s|$)/i.test(trimmed);
+}
+
+/**
+ * Power Search text clues that should skip fingerprint matching.
+ * lyrics / genre / songSection (era alone still allows audio passes).
+ */
+function hasTextClues(clues: PowerSearchClues) {
+  return (
+    useful(clues.lyrics) || useful(clues.genre) || useful(clues.songSection)
+  );
+}
+
+function parseClues(formData: FormData): PowerSearchClues {
+  return {
+    lyrics: String(formData.get("lyrics") ?? ""),
+    genre: String(formData.get("genre") ?? "any"),
+    era: String(formData.get("era") ?? "any"),
+    songSection: String(formData.get("songSection") ?? "any"),
+  };
+}
+
+/**
+ * Multi-source weighted search (Spotify/iTunes), with iTunes-only fallback.
+ */
+async function runTextPowerSearch(clues: PowerSearchClues): Promise<SongResult[]> {
+  try {
+    const candidates = await fetchMultiSourceCandidates(clues);
+    if (candidates.length > 0) {
+      return rankCandidates(candidates, clues, 5).map((result) => ({
+        title: result.title,
+        artist: result.artist,
+        album: result.album,
+        year: result.year,
+        albumArt: result.albumArt,
+        matchPercent: result.matchPercentage,
+      }));
+    }
+  } catch (error) {
+    console.warn("[recognize] Multi-source power search failed", error);
+  }
+
+  try {
+    const itunes = await searchByText(
+      clues.lyrics,
+      clues.genre,
+      clues.era,
+      clues.songSection,
+    );
+    return itunes.slice(0, 5).map((song, index) => ({
+      ...song,
+      matchPercent:
+        song.matchPercent ?? Math.max(40, 92 - index * 12),
+    }));
+  } catch (error) {
+    console.warn("[recognize] iTunes text fallback failed", error);
+    return [];
+  }
+}
+
 type ExactHit = {
   song: SongResult;
   confidence: number;
   source: "shazam" | "audd";
 };
 
-/**
- * Pass 1 — exact fingerprint match via Shazam, then AudD if configured.
- * Only returns a hit when confidence clears the 75% gate.
- */
 async function pass1ExactMatch(audio: Blob): Promise<ExactHit | null> {
   try {
     const result = await recognizeWithShazam(audio);
@@ -90,9 +152,6 @@ async function pass1ExactMatch(audio: Blob): Promise<ExactHit | null> {
   return null;
 }
 
-/**
- * Pass 2 — humming / pitch-contour via ACRCloud (optional).
- */
 async function pass2Humming(audio: Blob): Promise<SongResult[]> {
   try {
     return await recognizeWithAcrCloud(audio);
@@ -115,8 +174,32 @@ export async function POST(request: Request) {
       );
     }
 
+    const clues = parseClues(formData);
     const audio = formData.get("audio");
     const hasAudio = audio instanceof Blob && audio.size > 0;
+
+    // Power Search clues → bypass fingerprint matching, use text/multi-source ranking
+    if (hasTextClues(clues)) {
+      const songs = await runTextPowerSearch(clues);
+      if (songs.length === 0) {
+        return failure(
+          "NO_MATCH",
+          "No songs matched those Power Search clues.",
+          200,
+          { status: "NO_MATCH", triggerPowerSearch: true },
+        );
+      }
+
+      const body: RecognizeResponse = {
+        success: true,
+        ok: true,
+        status: "CANDIDATES",
+        searchMode: "power",
+        source: "itunes",
+        songs,
+      };
+      return NextResponse.json(body);
+    }
 
     if (!hasAudio) {
       return NextResponse.json(noMatchPayload());
@@ -152,11 +235,9 @@ export async function POST(request: Request) {
       return NextResponse.json(body);
     }
 
-    // Both passes failed → hand off to Power Search on the client
     return NextResponse.json(noMatchPayload());
   } catch (error) {
     console.error("[recognize] Unexpected error", error);
-    // Never surface an uncaught 500 — return structured Power Search handoff.
     return NextResponse.json(noMatchPayload());
   }
 }
