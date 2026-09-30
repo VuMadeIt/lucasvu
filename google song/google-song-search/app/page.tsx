@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { AnimatePresence, motion, useSpring, useTransform } from "framer-motion";
-import { ChevronLeft, History, Loader2 } from "lucide-react";
+import { ChevronLeft, History, Loader2, Mic } from "lucide-react";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { analyzeAudio, type SongResult } from "@/lib/analyzeAudio";
 import { useMaterialWebReady } from "@/lib/materialWeb";
 
 type SearchMode = "quick" | "power";
-type AppState = "listening" | "filters" | "analyzing" | "result";
+type AppState = "idle" | "listening" | "filters" | "analyzing" | "result";
 
 const GOOGLE_COLORS = ["#4285F4", "#EA4335", "#FBBC05", "#34A853"] as const;
 const STAGE_1_TIMEOUT_MS = 8000;
@@ -406,83 +406,6 @@ function PowerSearchFilters({
   );
 }
 
-function ResultCard({
-  song,
-  onWrongSong,
-}: {
-  song: SongResult;
-  onWrongSong: () => void;
-}) {
-  const query = encodeURIComponent(`${song.title} ${song.artist}`);
-  const youtubeUrl = `https://www.youtube.com/results?search_query=${query}`;
-  const spotifyUrl = `https://open.spotify.com/search/${query}`;
-
-  return (
-    <div className="flex w-full max-w-sm flex-col items-center">
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-        className="flex w-full flex-col items-center"
-      >
-        <div className="w-full overflow-hidden rounded-3xl bg-[#f1f3f4] shadow-sm">
-          {song.albumArt ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={song.albumArt}
-              alt={`${song.title} album art`}
-              className="aspect-square w-full object-cover"
-            />
-          ) : (
-            <div className="flex aspect-square w-full items-center justify-center bg-gradient-to-br from-[#e8eaed] to-[#d2d5d9] text-sm text-black/40">
-              No cover art
-            </div>
-          )}
-        </div>
-
-        <h2 className="mt-5 w-full text-center text-3xl font-bold leading-tight tracking-tight text-[#1f1f1f]">
-          {song.title}
-        </h2>
-        <p className="mt-2 text-center text-lg text-black/65">{song.artist}</p>
-        {(song.album || song.year) && (
-          <p className="mt-1 text-center text-sm text-black/40">
-            {[song.album, song.year].filter(Boolean).join(" · ")}
-          </p>
-        )}
-
-        <div className="mt-6 flex items-center gap-5">
-          <a
-            href={youtubeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Open on YouTube"
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f1f3f4] transition-colors hover:bg-[#e8eaed]"
-          >
-            <YouTubeIcon className="h-7 w-7" />
-          </a>
-          <a
-            href={spotifyUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Open on Spotify"
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f1f3f4] transition-colors hover:bg-[#e8eaed]"
-          >
-            <SpotifyIcon className="h-7 w-7" />
-          </a>
-        </div>
-      </motion.div>
-
-      <button
-        type="button"
-        onClick={onWrongSong}
-        className="mt-5 text-sm font-medium text-black/45 underline-offset-4 transition-colors hover:text-black/70 hover:underline"
-      >
-        Not the right song?
-      </button>
-    </div>
-  );
-}
-
 function PowerResultsList({
   songs,
   onWrongSong,
@@ -610,8 +533,7 @@ function PowerResultsList({
 
 export default function Home() {
   const [searchMode, setSearchMode] = useState<SearchMode>("quick");
-  // Google's screen starts listening immediately — no idle mic CTA.
-  const [appState, setAppState] = useState<AppState>("listening");
+  const [appState, setAppState] = useState<AppState>("idle");
   const [listeningElapsedMs, setListeningElapsedMs] = useState(0);
   const [songs, setSongs] = useState<SongResult[]>([]);
   const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0].value);
@@ -639,6 +561,16 @@ export default function Home() {
   useEffect(() => {
     searchModeRef.current = searchMode;
   }, [searchMode]);
+
+  const startQuickListening = useCallback(() => {
+    analyzingRef.current = false;
+    setSongs([]);
+    setListeningElapsedMs(0);
+    listeningStartedAtRef.current = Date.now();
+    setSearchMode("quick");
+    setListenSession((value) => value + 1);
+    setAppState("listening");
+  }, []);
 
   const enterPowerFilters = useCallback(async () => {
     analyzingRef.current = false;
@@ -671,9 +603,7 @@ export default function Home() {
     setEra(ERA_OPTIONS[0].value);
     setSongSection("any");
     setSearchMode("quick");
-    listeningStartedAtRef.current = Date.now();
-    setListenSession((value) => value + 1);
-    setAppState("listening");
+    setAppState("idle");
   }, [stopRecording]);
 
   const runAnalysis = useCallback(async () => {
@@ -694,14 +624,33 @@ export default function Home() {
       songSection: filters.songSection,
     });
 
-    if (result.success && result.ok && result.songs.length > 0) {
+    // Stage 1 success → Google Search redirect (never touch power / filters)
+    if (
+      modeAtStop === "quick" &&
+      result.success &&
+      result.ok &&
+      result.songs.length > 0
+    ) {
+      const song = result.songs[0];
+      const query = encodeURIComponent(`${song.artist} ${song.title}`);
+      window.location.href = `https://www.google.com/search?q=${query}`;
+      return;
+    }
+
+    // Power Search success → compact ranked list
+    if (
+      modeAtStop === "power" &&
+      result.success &&
+      result.ok &&
+      result.songs.length > 0
+    ) {
       setSongs(result.songs);
       setAppState("result");
       analyzingRef.current = false;
       return;
     }
 
-    // Miss → Power Search filter screen (no wave)
+    // Stage 1 miss / low confidence → Power Search filters only
     setSongs([]);
     analyzingRef.current = false;
     setSearchMode("power");
@@ -745,7 +694,7 @@ export default function Home() {
     return () => window.clearInterval(id);
   }, [appState, listenSession]);
 
-  // Auto-stop after 8s while listening (quick or power retry) → analyze with filters
+  // Auto-stop after 8s while listening (quick or power retry) → analyze
   useEffect(() => {
     if (appState !== "listening") return;
 
@@ -795,6 +744,27 @@ export default function Home() {
 
         {/* Clears absolute header + Dynamic Island; content centers in remaining space */}
         <main className="relative z-10 flex h-full w-full flex-col items-center justify-center overflow-y-auto px-6 pt-28 pb-24 text-center">
+          {appState === "idle" && (
+            <div className="flex w-full flex-col items-center">
+              <h1 className="text-6xl font-bold leading-none tracking-tight text-[#1f1f1f] sm:text-7xl">
+                <span className="block">Play</span>
+                <span className="block">Sing</span>
+                <span className="block">Hum</span>
+              </h1>
+              <p className="mt-6 max-w-[240px] text-base text-black/55">
+                Search a song by playing, singing, or humming it.
+              </p>
+              <button
+                type="button"
+                aria-label="Start listening"
+                onClick={startQuickListening}
+                className="mt-10 flex h-16 w-16 items-center justify-center rounded-full bg-[#1a73e8] text-white shadow-lg transition-transform hover:bg-[#1557b0] active:scale-95"
+              >
+                <Mic className="h-7 w-7" strokeWidth={2} />
+              </button>
+            </div>
+          )}
+
           {appState === "listening" && (
             <>
               <ListeningHeadline elapsedMs={listeningElapsedMs} />
@@ -834,17 +804,6 @@ export default function Home() {
           )}
 
           {appState === "analyzing" && <AnalyzingLoader />}
-
-          {appState === "result" &&
-            songs.length > 0 &&
-            searchMode === "quick" && (
-              <ResultCard
-                song={songs[0]}
-                onWrongSong={() => {
-                  void enterPowerFilters();
-                }}
-              />
-            )}
 
           {appState === "result" &&
             songs.length > 0 &&
