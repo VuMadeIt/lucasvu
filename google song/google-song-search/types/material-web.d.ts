@@ -17,6 +17,11 @@ type MdFilledSelectProps = DetailedHTMLProps<
   label?: string;
   value?: string;
   name?: string;
+  /** Keep the menu inside the phone mockup instead of top-layer popover */
+  "menu-positioning"?: "absolute" | "fixed" | "popover";
+  /** Force menu open direction relative to the field */
+  "menu-corner"?: string;
+  "anchor-corner"?: string;
 };
 
 type MdSelectOptionProps = DetailedHTMLProps<

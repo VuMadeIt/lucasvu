@@ -14,7 +14,7 @@ export type RecognizeSuccess = {
   ok: true;
   status?: "EXACT_MATCH" | "CANDIDATES";
   searchMode?: "quick" | "power";
-  source: "shazam" | "audd" | "acrcloud" | "itunes" | "mock";
+  source: "shazam" | "audd" | "acrcloud" | "itunes";
   /** Present on EXACT_MATCH responses */
   song?: SongResult;
   songs: SongResult[];

@@ -1,19 +1,15 @@
-import type { SongResult } from "@/lib/types";
+import "server-only";
 
-type AuddAppleMusic = {
-  artwork?: { url?: string };
-  albumName?: string;
-  releaseDate?: string;
-};
+import {
+  getAuddApiKey,
+  safeProviderError,
+} from "@/lib/secrets";
 
 type AuddResult = {
   title?: string;
   artist?: string;
   album?: string;
   release_date?: string;
-  song_link?: string;
-  apple_music?: AuddAppleMusic;
-  spotify?: { album?: { images?: Array<{ url?: string }> } };
 };
 
 type AuddPayload = {
@@ -22,81 +18,82 @@ type AuddPayload = {
   error?: { error_code?: number; error_message?: string };
 };
 
-export type AuddRecognition = {
-  song: SongResult;
-  /** AudD rarely returns a numeric score; treat a hit as a strong exact match. */
-  confidence: number;
+export type BasicRecognition = {
+  title: string;
+  artist: string;
+  album?: string;
+  year?: number;
 };
 
-function audioFilename(audio: Blob): string {
-  const type = audio.type || "audio/webm";
-  const extension = type.includes("ogg")
-    ? "ogg"
-    : type.includes("mp3") || type.includes("mpeg")
-      ? "mp3"
-      : type.includes("wav")
-        ? "wav"
-        : type.includes("mp4") || type.includes("m4a")
-          ? "m4a"
-          : "webm";
-  return `sample.${extension}`;
-}
-
 /**
- * Exact-match Pass 1 via AudD (https://api.audd.io/).
- * Returns null when unconfigured, no match, or upstream error.
+ * AudD recognition — sends a named webm Blob built from a raw buffer.
  */
 export async function recognizeWithAudd(
   audio: Blob,
-): Promise<AuddRecognition | null> {
-  const token = process.env.AUDD_API_TOKEN?.trim();
-  if (!token) return null;
+): Promise<BasicRecognition | null> {
+  const token = getAuddApiKey();
+  if (!token) {
+    throw safeProviderError("AudD", undefined, "config");
+  }
+
+  const buffer = Buffer.from(await audio.arrayBuffer());
+  const fileBlob = new Blob([buffer], { type: "audio/webm" });
 
   const form = new FormData();
   form.append("api_token", token);
   form.append("return", "apple_music,spotify");
-  form.append("file", audio, audioFilename(audio));
+  form.append("file", fileBlob, "recording.webm");
 
   const response = await fetch("https://api.audd.io/", {
     method: "POST",
     body: form,
   });
 
+  const detail = await response.text().catch(() => "");
+  let data: AuddPayload | null = null;
+  try {
+    data = detail ? (JSON.parse(detail) as AuddPayload) : null;
+  } catch {
+    data = null;
+  }
+
+  console.log("[AudD Raw Response]:", JSON.stringify(data));
+
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `AudD recognition failed (${response.status})${detail ? `: ${detail.slice(0, 180)}` : ""}`,
-    );
+    console.error("[audd] HTTP failure", {
+      status: response.status,
+      fileSize: buffer.byteLength,
+    });
+    throw safeProviderError("AudD", response.status, "http");
   }
 
-  const payload = (await response.json()) as AuddPayload;
-  if (payload.status === "error" || !payload.result) {
-    return null;
+  if (data?.status === "error") {
+    const code = data.error?.error_code;
+    const message = data.error?.error_message ?? "";
+    console.error("[audd] API error payload", { code, message });
+    if (
+      code === 900 ||
+      code === 901 ||
+      /auth|token|quota|limit|expired|trial|payment|plan|rate/i.test(message)
+    ) {
+      throw safeProviderError("AudD", code, "auth");
+    }
+    throw safeProviderError("AudD", code, "unknown");
   }
 
-  const result = payload.result;
-  const title = result.title?.trim();
-  const artist = result.artist?.trim();
+  if (!data?.result) return null;
+
+  const title = data.result.title?.trim();
+  const artist = data.result.artist?.trim();
   if (!title || !artist) return null;
 
-  const yearRaw = result.release_date ?? result.apple_music?.releaseDate;
+  const yearRaw = data.result.release_date;
   const year = yearRaw ? Number.parseInt(yearRaw.slice(0, 4), 10) : undefined;
 
-  const artworkTemplate = result.apple_music?.artwork?.url;
-  const albumArt =
-    (artworkTemplate
-      ? artworkTemplate.replace("{w}", "600").replace("{h}", "600")
-      : undefined) ?? result.spotify?.album?.images?.[0]?.url;
-
   return {
-    confidence: 92,
-    song: {
-      title,
-      artist,
-      album: result.album ?? result.apple_music?.albumName,
-      year: Number.isFinite(year) ? year : undefined,
-      albumArt,
-      matchPercent: 92,
-    },
+    title,
+    artist,
+    album: data.result.album,
+    year: Number.isFinite(year) ? year : undefined,
   };
 }

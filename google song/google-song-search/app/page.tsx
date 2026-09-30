@@ -314,7 +314,7 @@ function PowerSearchFilters({
 
   if (!materialReady) {
     return (
-      <div className="flex w-full max-w-sm flex-col gap-3">
+      <div className="relative z-20 flex w-full max-w-sm flex-col gap-3 overflow-visible">
         <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
         <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
         <div className="h-14 w-full animate-pulse rounded-2xl bg-[#f1f3f4]" />
@@ -323,9 +323,31 @@ function PowerSearchFilters({
     );
   }
 
-  const selectStyle = {
+  const materialFieldTheme = {
+    "--md-sys-color-primary": "#1a73e8",
+    "--md-sys-color-primary-container": "#e8f0fe",
+    "--md-sys-color-on-primary-container": "#1967d2",
+    "--md-filled-select-active-indicator-height": "0px",
+    "--md-filled-select-focus-active-indicator-height": "0px",
+    "--md-filled-select-active-indicator-color": "transparent",
+    "--md-filled-select-focus-active-indicator-color": "transparent",
+    "--md-filled-text-field-active-indicator-height": "0px",
+    "--md-filled-text-field-focus-active-indicator-height": "0px",
+    "--md-filled-text-field-active-indicator-color": "transparent",
+    "--md-filled-text-field-focus-active-indicator-color": "transparent",
     "--md-filled-select-text-field-container-color": "#f1f3f4",
-    "--md-filled-select-text-field-focus-active-indicator-color": "#1a73e8",
+    "--md-filled-text-field-container-color": "#f1f3f4",
+    "--md-menu-container-max-height": "140px",
+  } as CSSProperties;
+
+  const selectStyle = {
+    ...materialFieldTheme,
+    "--md-menu-container-max-height": "140px",
+    "--md-filled-select-active-indicator-height": "0px",
+    "--md-filled-select-focus-active-indicator-height": "0px",
+    "--md-filled-select-active-indicator-color": "transparent",
+    "--md-filled-select-focus-active-indicator-color": "transparent",
+    "--md-sys-color-primary": "#1a73e8",
   } as CSSProperties;
 
   return (
@@ -333,7 +355,8 @@ function PowerSearchFilters({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
-      className="flex w-full max-w-sm flex-col gap-3 text-left"
+      className="relative z-20 flex w-full max-w-sm flex-col gap-3 overflow-visible text-left"
+      style={materialFieldTheme}
     >
       <md-filled-text-field
         ref={lyricsRef as never}
@@ -341,20 +364,17 @@ function PowerSearchFilters({
         placeholder="e.g. never gonna give you up"
         value={lyrics}
         className="w-full"
-        style={
-          {
-            "--md-filled-text-field-container-color": "#f1f3f4",
-            "--md-filled-text-field-focus-indicator-color": "#1a73e8",
-            "--md-filled-text-field-active-indicator-color": "#1a73e8",
-          } as CSSProperties
-        }
+        style={materialFieldTheme}
       />
 
       <md-filled-select
         ref={songSectionRef as never}
         label="Part of the song"
         value={songSection}
-        className="mt-4 w-full"
+        menu-positioning="fixed"
+        anchor-corner="END_START"
+        menu-corner="START_START"
+        className="mt-4 w-full [&_::part(menu)]:!max-h-[140px] [&_::part(menu)]:overflow-y-auto"
         style={selectStyle}
       >
         {SONG_SECTION_OPTIONS.map((option) => (
@@ -372,7 +392,10 @@ function PowerSearchFilters({
         ref={genreRef as never}
         label="Genre"
         value={genre}
-        className="w-full"
+        menu-positioning="fixed"
+        anchor-corner="END_START"
+        menu-corner="START_START"
+        className="w-full [&_::part(menu)]:!max-h-[140px] [&_::part(menu)]:overflow-y-auto"
         style={selectStyle}
       >
         {GENRE_OPTIONS.map((option) => (
@@ -390,7 +413,10 @@ function PowerSearchFilters({
         ref={eraRef as never}
         label="Era"
         value={era}
-        className="w-full"
+        menu-positioning="fixed"
+        anchor-corner="END_START"
+        menu-corner="START_START"
+        className="w-full [&_::part(menu)]:!max-h-[140px] [&_::part(menu)]:overflow-y-auto"
         style={selectStyle}
       >
         {ERA_OPTIONS.map((option) => (
@@ -614,7 +640,7 @@ export default function Home() {
   const [appState, setAppState] = useState<AppState>("idle");
   const [attempts, setAttempts] = useState(0);
   const [listeningElapsedMs, setListeningElapsedMs] = useState(0);
-  const [songs, setSongs] = useState<SongResult[]>([]);
+  const [songs, setSongs] = useState<SongResult[]>([]); // only filled from analyzeAudio — never mock/defaults
   const [genre, setGenre] = useState<string>(GENRE_OPTIONS[0].value);
   const [lyrics, setLyrics] = useState("");
   const [era, setEra] = useState<string>(ERA_OPTIONS[0].value);
@@ -749,15 +775,30 @@ export default function Home() {
       songSection: filters.songSection,
     });
 
-    // Confident match → in-app Results (no Google redirect)
-    if (result.success && result.ok && result.songs.length > 0) {
+    console.log("[page] analyzeAudio final result", result);
+
+    // Only enter Results with real backend songs — never mock / empty payloads
+    const hasRealSongs =
+      result.success === true &&
+      result.ok === true &&
+      Array.isArray(result.songs) &&
+      result.songs.length > 0 &&
+      result.songs.every(
+        (song) => song.title?.trim() && song.artist?.trim(),
+      );
+
+    if (hasRealSongs) {
       setSongs(result.songs);
       setAppState("result");
       analyzingRef.current = false;
       return;
     }
 
-    // No match → filters (attempt 1) or hard-fail (attempt 2+)
+    // success:false / no songs → increment attempts → filters or hard-fail
+    console.log("[page] No confident match — running failure routing", {
+      attemptsBefore: attemptsRef.current,
+      success: result.success,
+    });
     handleNoMatch();
   }, [clearListenTimeout, handleNoMatch, stopRecording]);
 
@@ -883,7 +924,7 @@ export default function Home() {
           )}
 
           {showPowerFilters && (
-            <div className="flex w-full max-w-sm flex-col items-center">
+            <div className="relative z-20 flex w-full max-w-sm flex-col items-center overflow-visible">
               <h1 className="mb-6 text-center text-2xl font-medium text-[#1f1f1f]">
                 Humming was tricky? Let&apos;s narrow it down.
               </h1>
@@ -965,6 +1006,32 @@ export default function Home() {
                 }}
               />
             )}
+
+          {/* Never leave a blank phone after a failed/empty result state */}
+          {appState === "result" && songs.length === 0 && (
+            <div className="relative z-20 flex w-full max-w-sm flex-col items-center overflow-visible">
+              <h1 className="mb-6 text-center text-2xl font-medium text-[#1f1f1f]">
+                Humming was tricky? Let&apos;s narrow it down.
+              </h1>
+              <PowerSearchFilters
+                genre={genre}
+                lyrics={lyrics}
+                era={era}
+                songSection={songSection}
+                onGenreChange={setGenre}
+                onLyricsChange={setLyrics}
+                onEraChange={setEra}
+                onSongSectionChange={setSongSection}
+              />
+              <button
+                type="button"
+                onClick={tryAgainFromFilters}
+                className="mt-8 rounded-full bg-[#1a73e8] px-8 py-3 font-medium text-white shadow-none transition-all hover:bg-[#1557b0] active:scale-[0.98]"
+              >
+                Try again
+              </button>
+            </div>
+          )}
         </main>
 
         {appState === "listening" && (

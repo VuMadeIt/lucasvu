@@ -14,7 +14,11 @@ export const metadata: Metadata = {
   description: "Play, sing, or hum a song to find it",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="en" className={`${plusJakartaSans.variable} h-full antialiased`}>
       <head>

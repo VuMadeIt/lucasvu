@@ -11,17 +11,18 @@ type UseAudioRecorderReturn = {
   stopRecording: () => Promise<Blob | null>;
 };
 
-function pickMimeType(): string | undefined {
-  if (typeof MediaRecorder === "undefined") return undefined;
+function pickMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "audio/webm";
 
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg",
-  ];
+  // Prefer formats backend APIs (AudD / Shazam) commonly accept.
+  if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+  if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+    return "audio/webm;codecs=opus";
+  }
+  if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+  if (MediaRecorder.isTypeSupported("audio/ogg")) return "audio/ogg";
 
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type));
+  return "audio/webm";
 }
 
 export function useAudioRecorder(): UseAudioRecorderReturn {
@@ -151,8 +152,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       startVolumeMeter(stream);
 
       const mimeType = pickMimeType();
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
+      const options = { mimeType };
+      const recorder = MediaRecorder.isTypeSupported(mimeType)
+        ? new MediaRecorder(stream, options)
         : new MediaRecorder(stream);
 
       mediaRecorderRef.current = recorder;
@@ -164,10 +166,12 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       };
 
       recorder.onstop = () => {
-        const type = recorder.mimeType || mimeType || "audio/webm";
+        // Normalize to a clean container MIME (drop ";codecs=…" for backends).
+        const recordedType = recorder.mimeType || mimeType || "audio/webm";
+        const baseType = recordedType.split(";")[0]?.trim() || "audio/webm";
         const blob =
           chunksRef.current.length > 0
-            ? new Blob(chunksRef.current, { type })
+            ? new Blob(chunksRef.current, { type: baseType })
             : null;
 
         setAudioBlob(blob);

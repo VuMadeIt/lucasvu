@@ -35,17 +35,18 @@ h6 {
   letter-spacing: -0.02em;
 }
 
-/* Material Web filled fields — Google gray containers, blue focus */
+/* Material Web filled fields — Google gray containers, blue focus, no underline */
 md-filled-text-field,
 md-filled-select {
   width: 100%;
+  --md-sys-color-primary: #1a73e8;
   --md-filled-text-field-container-color: #f1f3f4;
   --md-filled-text-field-hover-container-color: #e8eaed;
   --md-filled-text-field-focus-indicator-color: #1a73e8;
-  --md-filled-text-field-active-indicator-color: #1a73e8;
-  --md-filled-text-field-hover-active-indicator-color: #1a73e8;
+  --md-filled-text-field-active-indicator-color: transparent;
+  --md-filled-text-field-hover-active-indicator-color: transparent;
   --md-filled-text-field-active-indicator-height: 0px;
-  --md-filled-text-field-focus-active-indicator-height: 2px;
+  --md-filled-text-field-focus-active-indicator-height: 0px;
   --md-filled-text-field-container-shape: 16px;
   --md-filled-text-field-label-text-font: var(--font-plus-jakarta);
   --md-filled-text-field-input-text-font: var(--font-plus-jakarta);
@@ -54,16 +55,28 @@ md-filled-select {
 
   --md-filled-select-text-field-container-color: #f1f3f4;
   --md-filled-select-text-field-hover-container-color: #e8eaed;
-  --md-filled-select-text-field-focus-active-indicator-color: #1a73e8;
+  --md-filled-select-text-field-focus-active-indicator-color: transparent;
   --md-filled-select-text-field-active-indicator-color: transparent;
+  --md-filled-select-active-indicator-height: 0px;
+  --md-filled-select-focus-active-indicator-height: 0px;
+  --md-filled-select-active-indicator-color: transparent;
+  --md-filled-select-focus-active-indicator-color: transparent;
   --md-filled-select-text-field-container-shape: 16px;
   --md-filled-select-text-field-input-text-font: var(--font-plus-jakarta);
   --md-filled-select-text-field-label-text-font: var(--font-plus-jakarta);
+  --md-menu-container-max-height: 140px;
 }
 
 md-filled-select::part(menu) {
   --md-menu-container-color: #ffffff;
   --md-menu-container-shape: 12px;
+  --md-menu-container-max-height: 140px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+md-menu {
+  --md-menu-container-max-height: 140px;
 }
 
 .material-symbols-outlined {

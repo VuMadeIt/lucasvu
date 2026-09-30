@@ -1,3 +1,5 @@
+import "server-only";
+
 export type MusicCandidate = {
   id: string;
   source: "itunes" | "spotify";
@@ -36,7 +38,9 @@ export function buildMusicQuery(clues: {
     section && section !== "Not sure" ? section : "",
   ].filter(Boolean);
 
-  return parts.join(" ").trim() || "popular songs";
+  // Never fall back to a generic chart query — that surfaces unrelated
+  // popular tracks that look like hardcoded mock results.
+  return parts.join(" ").trim();
 }
 
 type ITunesTrack = {
@@ -238,6 +242,8 @@ export async function fetchMultiSourceCandidates(clues: {
   songSection: string;
 }): Promise<MusicCandidate[]> {
   const query = buildMusicQuery(clues);
+  if (!query) return [];
+
   const [spotify, itunes] = await Promise.all([
     fetchSpotifyCandidates(query),
     fetchItunesCandidates(query),

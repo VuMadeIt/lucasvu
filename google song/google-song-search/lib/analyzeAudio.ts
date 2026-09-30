@@ -1,4 +1,5 @@
 import type { RecognizeResponse, SongResult } from "@/lib/types";
+import { toNamedAudioFile } from "@/lib/audioFile";
 
 export type { SongResult };
 
@@ -7,7 +8,7 @@ export type AnalyzeAudioResult =
       ok: true;
       success: true;
       songs: SongResult[];
-      source: "shazam" | "audd" | "acrcloud" | "itunes" | "mock";
+      source: "shazam" | "audd" | "acrcloud" | "itunes";
       confidence?: number;
       status?: "EXACT_MATCH" | "CANDIDATES";
       searchMode?: "quick" | "power";
@@ -32,24 +33,9 @@ type AnalyzeOptions = RecognizeFilters & {
   searchMode?: "quick" | "power";
 };
 
-const POWER_MATCH_PERCENTS = [94, 81, 67, 52, 40] as const;
-
-/**
- * Preserve backend matchPercent when present; otherwise assign ranked defaults.
- */
-function withMatchPercents(songs: SongResult[]): SongResult[] {
-  return songs.slice(0, 5).map((song, index) => ({
-    ...song,
-    matchPercent:
-      typeof song.matchPercent === "number"
-        ? song.matchPercent
-        : (POWER_MATCH_PERCENTS[index] ?? Math.max(35, 90 - index * 12)),
-  }));
-}
-
 /**
  * Build multipart FormData for /api/recognize.
- * Always appends filter fields so the backend can detect Power Search clues.
+ * Always sends a named file (recording.webm) so backends don't discard the blob.
  * Do not set Content-Type manually — the browser adds the multipart boundary.
  */
 export function buildRecognizeFormData(
@@ -59,21 +45,12 @@ export function buildRecognizeFormData(
   const formData = new FormData();
 
   if (blob && blob.size > 0) {
-    const type = blob.type || "audio/webm";
-    const extension = type.includes("ogg")
-      ? "ogg"
-      : type.includes("mp4") || type.includes("m4a")
-        ? "m4a"
-        : type.includes("mpeg") || type.includes("mp3")
-          ? "mp3"
-          : type.includes("wav")
-            ? "wav"
-            : "webm";
-
-    formData.append(
-      "audio",
-      new File([blob], `recording.${extension}`, { type }),
-    );
+    const file = toNamedAudioFile(blob, "recording.webm");
+    // Primary field our route reads
+    formData.append("audio", file, file.name);
+    // Also attach common upstream field names for any proxy/debug tooling
+    formData.append("file", file, file.name);
+    formData.append("upload_file", file, file.name);
   }
 
   formData.append("lyrics", filters.lyrics ?? "");
@@ -84,23 +61,27 @@ export function buildRecognizeFormData(
   return formData;
 }
 
-function mapRecognizeSuccess(
-  data: Extract<RecognizeResponse, { success: true }>,
-): AnalyzeAudioResult {
-  return {
-    ok: true,
-    success: true,
-    songs: withMatchPercents(data.songs),
-    source: data.source,
-    confidence: data.confidence,
-    status: data.status,
-    searchMode: data.searchMode,
-  };
+function isRealSuccess(
+  data: RecognizeResponse,
+): data is Extract<RecognizeResponse, { success: true }> {
+  return Boolean(
+    data.success &&
+      data.ok &&
+      Array.isArray(data.songs) &&
+      data.songs.length > 0 &&
+      data.songs.every(
+        (song) =>
+          typeof song.title === "string" &&
+          song.title.trim().length > 0 &&
+          typeof song.artist === "string" &&
+          song.artist.trim().length > 0,
+      ),
+  );
 }
 
 /**
- * Client-side helper: posts audio + Power Search filters to /api/recognize.
- * Power mode sends both the recording and filter text fields in one FormData body.
+ * Client-side helper: posts audio + filters to /api/recognize.
+ * Never invents songs — failures always return success: false.
  */
 export async function analyzeAudio(
   blob: Blob | null,
@@ -109,126 +90,94 @@ export async function analyzeAudio(
   const { searchMode = "quick", ...filters } = options;
   const formData = buildRecognizeFormData(blob, filters);
 
-  // Power Search: audio blob + lyrics/genre/era/songSection → backend text ranking
-  if (searchMode === "power") {
+  try {
+    const response = await fetch("/api/recognize", {
+      method: "POST",
+      body: formData,
+    });
+
+    let data: RecognizeResponse & {
+      song?: SongResult;
+      message?: string;
+      triggerPowerSearch?: boolean;
+    };
+
     try {
-      const response = await fetch("/api/recognize", {
-        method: "POST",
-        body: formData,
-      });
-      const data = (await response.json()) as RecognizeResponse;
-
-      if (data.success && data.ok && data.songs.length > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 600));
-        return mapRecognizeSuccess(data);
-      }
-
-      return {
-        ok: false,
-        success: false,
-        error: !data.success ? data.error : "NO_MATCH",
-        reason:
-          (!data.success && (data.message || data.reason)) ||
-          "No songs matched those Power Search clues.",
-        status: "NO_MATCH",
-        triggerPowerSearch: true,
-      };
+      data = (await response.json()) as typeof data;
     } catch {
+      console.log("[analyzeAudio] Non-JSON response", {
+        status: response.status,
+        searchMode,
+      });
       return {
         ok: false,
         success: false,
-        error: "SEARCH_FAILED",
-        reason: "Power Search failed. Please try again.",
         status: "NO_MATCH",
         triggerPowerSearch: true,
+        error: "NO_MATCH",
+        reason: "Audio could not be identified. Switching to Power Search.",
       };
     }
-  }
 
-  const response = await fetch("/api/recognize", {
-    method: "POST",
-    body: formData,
-  });
+    // Browser console: inspect exact backend payload
+    console.log("[analyzeAudio] Backend JSON response", data);
 
-  let data: RecognizeResponse & {
-    status?: string;
-    triggerPowerSearch?: boolean;
-    song?: SongResult;
-    message?: string;
-  };
-  try {
-    data = (await response.json()) as typeof data;
-  } catch {
-    return {
-      ok: false,
-      success: false,
-      status: "NO_MATCH",
-      triggerPowerSearch: true,
-      reason: "Audio could not be identified. Switching to Power Search.",
-    };
-  }
-
-  if (data.status === "EXACT_MATCH") {
-    const song =
-      ("song" in data && data.song) ||
-      (data.success && "songs" in data && data.songs[0]);
-    if (song) {
+    // Prefer explicit song on EXACT_MATCH
+    if (
+      (data.status === "EXACT_MATCH" || data.success) &&
+      data.song &&
+      data.song.title?.trim() &&
+      data.song.artist?.trim()
+    ) {
       return {
         ok: true,
         success: true,
-        songs: [song],
-        source: data.success ? data.source : "shazam",
+        songs: [data.song],
+        source: data.success ? data.source : "audd",
         confidence: data.success ? data.confidence : undefined,
         status: "EXACT_MATCH",
-        searchMode: "quick",
+        searchMode: data.success ? data.searchMode : searchMode,
       };
     }
-  }
 
-  if (
-    data.status === "CANDIDATES" &&
-    data.success &&
-    "songs" in data &&
-    data.songs.length > 0
-  ) {
-    return {
-      ok: true,
-      success: true,
-      songs: withMatchPercents(data.songs),
-      source: data.source,
-      status: "CANDIDATES",
-      searchMode: data.searchMode ?? "quick",
-    };
-  }
+    if (isRealSuccess(data)) {
+      return {
+        ok: true,
+        success: true,
+        songs: data.songs,
+        source: data.source,
+        confidence: data.confidence,
+        status: data.status,
+        searchMode: data.searchMode ?? searchMode,
+      };
+    }
 
-  if (data.status === "NO_MATCH" || data.triggerPowerSearch) {
+    console.log("[analyzeAudio] Treating response as failure (no real songs)", {
+      success: data.success,
+      status: "status" in data ? data.status : undefined,
+      songCount:
+        "songs" in data && Array.isArray(data.songs) ? data.songs.length : 0,
+    });
+
     return {
       ok: false,
       success: false,
       status: "NO_MATCH",
       triggerPowerSearch: true,
-      error: "NO_MATCH",
+      error: !data.success ? data.error : "NO_MATCH",
       reason:
-        data.message ||
-        ("reason" in data ? data.reason : undefined) ||
+        (!data.success && (data.message || data.reason)) ||
         "Audio could not be identified. Switching to Power Search.",
     };
-  }
-
-  if (!data.success || !("songs" in data)) {
-    const failure = data as Extract<RecognizeResponse, { success: false }>;
+  } catch (error) {
+    console.log("[analyzeAudio] Fetch failed", error);
     return {
       ok: false,
       success: false,
-      error: failure.error,
-      reason:
-        failure.message ||
-        failure.reason ||
-        "Could not confidently identify audio",
-      triggerPowerSearch: true,
+      error: "SEARCH_FAILED",
+      reason: "Recognition request failed. Please try again.",
       status: "NO_MATCH",
+      triggerPowerSearch: true,
     };
   }
-
-  return mapRecognizeSuccess(data);
 }

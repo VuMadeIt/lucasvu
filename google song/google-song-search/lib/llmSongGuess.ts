@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { LlmSongGuess, PowerSearchClues } from "@/lib/powerSearchTypes";
 
 const SECTION_LABELS: Record<string, string> = {

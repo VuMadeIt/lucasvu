@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHmac } from "crypto";
 import type { SongResult } from "@/lib/types";
 
